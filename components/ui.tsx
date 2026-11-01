@@ -35,7 +35,7 @@ export function Toaster() {
 export function Mark() {
   return (
     <svg viewBox="0 0 512 512" aria-hidden="true">
-      <path d="M256 92 L404 240 L256 388 L108 240 Z" fill="none" stroke="#e8642c" strokeWidth="40" strokeLinejoin="round" />
+      <path d="M256 92 L404 240 L256 388 L108 240 Z" fill="none" stroke="var(--accent)" strokeWidth="40" strokeLinejoin="round" />
       <path d="M188 244 L236 292 L326 196" fill="none" stroke="currentColor" strokeWidth="40" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
