@@ -24,7 +24,34 @@ export const TOPIC_LABEL: Record<Topic, string> = {
   septic: 'Septic / well', fireplace: 'Fireplace',
 };
 
+/** [x0, y0, x1, y1] as fractions of a sheet image. */
+export type Box = [number, number, number, number];
+
+export const ROOM_KINDS = [
+  'kitchen', 'bathroom', 'bedroom', 'living', 'dining', 'office', 'laundry', 'hall', 'mechanical', 'storage', 'garage', 'other',
+] as const;
+export type RoomKind = (typeof ROOM_KINDS)[number];
+export const ROOM_KIND_LABEL: Record<RoomKind, string> = {
+  kitchen: 'Kitchen', bathroom: 'Bathroom', bedroom: 'Bedroom', living: 'Living / family', dining: 'Dining', office: 'Office / den',
+  laundry: 'Laundry / mud', hall: 'Hall / stair / foyer', mechanical: 'Mechanical', storage: 'Storage / closet', garage: 'Garage', other: 'Other',
+};
+
+/** A room confirmed from the floor plans. `sheet` and `box` locate it on a drawing. */
+export interface Room {
+  id: string;
+  name: string;
+  level: string;
+  kind: RoomKind;
+  sheet?: string;
+  box?: Box;
+}
+
+export function roomId(name: string, level: string): string {
+  return `${level}-${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'room';
+}
+
 export interface Features {
+  rooms: Room[];
   storeys: number; // above-grade storeys
   foundation: 'basement' | 'walkout' | 'crawl' | 'slab';
   walls: 'poured' | 'icf' | 'block';
@@ -40,7 +67,7 @@ export interface Features {
 }
 
 export const DEFAULT_FEATURES: Features = {
-  storeys: 2, foundation: 'basement', walls: 'poured', garage: 'attached', cladding: ['brick', 'siding'],
+  rooms: [], storeys: 2, foundation: 'basement', walls: 'poured', garage: 'attached', cladding: ['brick', 'siding'],
   roof: 'asphalt', heating: 'gas_forced', gas: true, hrv: true, fireplace: 'none', servicing: 'municipal', bathrooms: 3,
 };
 
@@ -62,12 +89,12 @@ interface TaskDef {
   topics: Topic[];
   codes: string[];
   checks: string[];
-  photo?: boolean; // photo evidence required before verification
   after?: string[];
   needs?: string[]; // inspection ids that must be passed (or N/A)
   when?: (f: Features) => boolean;
   repeat?: 'storeys' | 'bathrooms';
   whenN?: (f: Features, n: number) => boolean;
+  perRoom?: (r: Room) => string[]; // extra checks grouped under each confirmed room
 }
 
 interface InspDef {
@@ -94,6 +121,23 @@ const t = (d: Omit<TaskDef, 'kind'>): TaskDef => ({ kind: 'task', ...d });
 const i = (d: Omit<InspDef, 'kind'>): InspDef => ({ kind: 'insp', ...d });
 const MUNI = 'Notify the municipality through its inspection booking line or portal, quoting the permit number. Work must not be covered until passed.';
 const hasBrick = (f: Features) => f.cladding.includes('brick') || f.cladding.includes('stone');
+const finished = (r: Room) => !['garage', 'mechanical', 'storage'].includes(r.kind);
+
+// Room-by-room checks added to a task once the rooms are confirmed from the floor plans.
+const ROOM_CHECKS = {
+  hvac: (r: Room) => (r.kind === 'garage' ? [] : ['Supply and return locations match the HVAC plan']),
+  plumb: (r: Room) => (['kitchen', 'bathroom', 'laundry', 'mechanical'].includes(r.kind) ? ['Fixture rough-ins at the locations shown', 'Drain and supply sizes per plan'] : []),
+  elec: (r: Room) => [
+    'Outlets, switches and light boxes per the electrical plan',
+    ...(r.kind === 'kitchen' ? ['Counter receptacles and appliance circuits'] : []),
+    ...(r.kind === 'bathroom' ? ['GFCI protection and exhaust fan circuit'] : []),
+    ...(r.kind === 'bedroom' ? ['Smoke / CO alarm location per plan'] : []),
+  ],
+  board: () => ['Board hung: moisture-resistant in wet areas, fire-rated where required'],
+  floor: (r: Room) => (finished(r) && r.kind !== 'bathroom' ? ['Flooring per selection, transitions at doorways'] : []),
+  trim: (r: Room) => (finished(r) ? ['Doors, casing and baseboard installed'] : []),
+  paint: (r: Room) => (finished(r) ? ['Painted per palette, touch-ups done'] : []),
+};
 
 export const PHASES: PhaseDef[] = [
   {
@@ -123,14 +167,14 @@ export const PHASES: PhaseDef[] = [
       t({ id: 'site-locates', name: 'Underground locates', trade: 'General contractor', topics: ['utilities', 'site'], codes: ['ONECALL'],
         checks: ['Locate request submitted', 'Locates received and valid for the dig dates', 'Private locates for owner-side services', 'Locate sheets on site'] }),
       t({ id: 'site-erosion', name: 'Tree protection and erosion control', trade: 'Landscaping / grading', topics: ['site', 'grading'], codes: [],
-        checks: ['Silt fence installed per site / grading plan', 'Tree protection hoarding installed', 'Construction entrance / mud mat', 'Conservation authority permit conditions met (if regulated)'], photo: true }),
+        checks: ['Silt fence installed per site / grading plan', 'Tree protection hoarding installed', 'Construction entrance / mud mat', 'Conservation authority permit conditions met (if regulated)'] }),
       t({ id: 'site-access', name: 'Curb cut and site access', trade: 'General contractor', topics: ['site'], codes: [],
         checks: ['Curb cut / road occupancy permit (if applicable)', 'Driveway location matches site plan', 'Delivery and parking plan'] }),
       t({ id: 'site-septic', name: 'Septic system and well', trade: 'Septic installer', topics: ['septic'], codes: ['B8'],
         when: (f) => f.servicing === 'septic_well',
         checks: ['Septic permit issued', 'Bed location and clearances match approved design', 'Well location and separation from bed verified', 'Well record on file'] }),
       t({ id: 'site-excavate', name: 'Excavation', trade: 'Excavator', topics: ['footings', 'site'], codes: ['B9.12', 'OHSA'], after: ['site-locates'],
-        checks: ['Excavated to depth and elevation on drawings', 'Footing bearing on undisturbed soil', 'Footing depth below frost per drawings and 9.12', 'Excavation sloped or shored safely', 'Water controlled / dewatered'], photo: true }),
+        checks: ['Excavated to depth and elevation on drawings', 'Footing bearing on undisturbed soil', 'Footing depth below frost per drawings and 9.12', 'Excavation sloped or shored safely', 'Water controlled / dewatered'] }),
       t({ id: 'site-temp', name: 'Temporary services', trade: 'General contractor', topics: ['site'], codes: [],
         checks: ['Temporary power', 'Washroom', 'Waste bin', 'Water supply'] }),
     ],
@@ -140,24 +184,24 @@ export const PHASES: PhaseDef[] = [
     summary: 'Footings, walls, under-slab services, waterproofing, drainage, backfill and slab.',
     items: [
       t({ id: 'f-forms', name: 'Footing layout, forms and reinforcing', trade: 'Concrete / foundation', topics: ['footings'], codes: ['B9.15', 'B9.4'],
-        checks: ['Layout matches foundation plan dimensions', 'Footing width and depth per drawings', 'Steps in footing per detail', 'Pad footings at point loads located', 'Rebar size, spacing and cover per structural'], photo: true }),
+        checks: ['Layout matches foundation plan dimensions', 'Footing width and depth per drawings', 'Steps in footing per detail', 'Pad footings at point loads located', 'Rebar size, spacing and cover per structural'] }),
       i({ id: 'insp-footing', name: 'Footings, before concrete', authority: 'Municipal', codes: ['C1.3.5'], after: ['f-forms'], howTo: MUNI }),
       t({ id: 'f-pour', name: 'Place footing concrete', trade: 'Concrete / foundation', topics: ['footings'], codes: ['B9.15'], needs: ['insp-footing'],
-        checks: ['Concrete strength matches spec (keep tickets)', 'Keyway and dowels placed', 'Protected from freezing'], photo: true }),
+        checks: ['Concrete strength matches spec (keep tickets)', 'Keyway and dowels placed', 'Protected from freezing'] }),
       t({ id: 'f-walls', name: 'Foundation walls', trade: 'Concrete / foundation', topics: ['foundation'], codes: ['B9.15', 'B9.20'], after: ['f-pour'],
-        checks: ['Wall thickness and height per drawings', 'Reinforcing per drawings', 'Window bucks, beam pockets and sleeves located', 'Anchor bolts / straps at spacing shown', 'Walls plumb, top elevation checked'], photo: true }),
+        checks: ['Wall thickness and height per drawings', 'Reinforcing per drawings', 'Window bucks, beam pockets and sleeves located', 'Anchor bolts / straps at spacing shown', 'Walls plumb, top elevation checked'] }),
       t({ id: 'f-underslab', name: 'Under-slab plumbing', trade: 'Plumber', topics: ['underslab_plumbing', 'plumbing'], codes: ['B7'], when: (f) => f.foundation !== 'crawl',
-        checks: ['Drains per under-floor plumbing plan', 'Slope and cleanouts', 'Sump / ejector pit located', 'Test performed and holding'], photo: true }),
+        checks: ['Drains per under-floor plumbing plan', 'Slope and cleanouts', 'Sump / ejector pit located', 'Test performed and holding'] }),
       i({ id: 'insp-plumb-ug', name: 'Under-slab plumbing, before cover', authority: 'Municipal', codes: ['C1.3.5', 'B7'], after: ['f-underslab'], howTo: MUNI, when: (f) => f.foundation !== 'crawl' }),
       t({ id: 'f-damp', name: 'Dampproofing / waterproofing', trade: 'Waterproofing', topics: ['waterproofing'], codes: ['B9.13'], after: ['f-walls'],
-        checks: ['Membrane / coating type matches spec', 'Full coverage to grade line', 'Drainage board / layer installed', 'Penetrations and tie holes sealed'], photo: true }),
+        checks: ['Membrane / coating type matches spec', 'Full coverage to grade line', 'Drainage board / layer installed', 'Penetrations and tie holes sealed'] }),
       t({ id: 'f-drain', name: 'Foundation drainage', trade: 'Waterproofing', topics: ['waterproofing', 'grading'], codes: ['B9.14'], after: ['f-walls'],
-        checks: ['Weeping tile at footing, correct side and slope', 'Clear stone cover and filter fabric', 'Outlet to sump or storm per drawings'], photo: true }),
+        checks: ['Weeping tile at footing, correct side and slope', 'Clear stone cover and filter fabric', 'Outlet to sump or storm per drawings'] }),
       i({ id: 'insp-found', name: 'Foundation, before backfill', authority: 'Municipal', codes: ['C1.3.5'], after: ['f-damp', 'f-drain'], howTo: MUNI }),
       t({ id: 'f-backfill', name: 'Backfill', trade: 'Excavator', topics: ['foundation', 'grading'], codes: ['B9.12'], needs: ['insp-found'],
         checks: ['Floor framing or bracing in place before backfill (per engineer)', 'Backfill material free of debris and frozen material', 'Placed in lifts, walls not overloaded', 'Rough grade sloped away from house'] }),
       t({ id: 'f-slab', name: 'Basement / garage slab', trade: 'Concrete / foundation', topics: ['foundation', 'energy'], codes: ['B9.16', 'B9.13', 'B12'], after: ['f-backfill'],
-        checks: ['Granular base compacted', 'Soil gas / vapour barrier lapped and sealed', 'Under-slab insulation per SB-12 package (if required)', 'Radon rough-in where required', 'Slab thickness and finish'], photo: true }),
+        checks: ['Granular base compacted', 'Soil gas / vapour barrier lapped and sealed', 'Under-slab insulation per SB-12 package (if required)', 'Radon rough-in where required', 'Slab thickness and finish'] }),
     ],
   },
   {
@@ -168,13 +212,13 @@ export const PHASES: PhaseDef[] = [
         checks: ['Sill gasket installed', 'Anchors / straps fastened per spec', 'Sill level and square to layout'] }),
       t({ id: 'fr-floor-{n}', name: 'Floor system: {level}', trade: 'Framer', topics: ['framing_floor'], codes: ['B9.23', 'B9.4', 'B9.17'], repeat: 'storeys',
         whenN: (f, n) => n > 1 || f.foundation !== 'slab', after: ['fr-sill'],
-        checks: ['Joist layout matches floor plan / engineered layout', 'Beams, columns and point loads per drawings', 'Hangers and bearing lengths', 'Openings framed and headed off', 'Subfloor glued and fastened'], photo: true }),
+        checks: ['Joist layout matches floor plan / engineered layout', 'Beams, columns and point loads per drawings', 'Hangers and bearing lengths', 'Openings framed and headed off', 'Subfloor glued and fastened'] }),
       t({ id: 'fr-ext-{n}', name: 'Exterior walls: {level}', trade: 'Framer', topics: ['framing_walls', 'windows_doors'], codes: ['B9.23'], repeat: 'storeys',
-        checks: ['Stud size and spacing per drawings', 'Headers / lintels match window opening chart', 'Sheathing type and fastening', 'Corners and bracing'], photo: true }),
+        checks: ['Stud size and spacing per drawings', 'Headers / lintels match window opening chart', 'Sheathing type and fastening', 'Corners and bracing'] }),
       t({ id: 'fr-int-{n}', name: 'Interior walls: {level}', trade: 'Framer', topics: ['framing_walls'], codes: ['B9.23'], repeat: 'storeys',
         checks: ['Layout matches floor plan', 'Bearing walls align with beams below', 'Blocking for cabinets, grab bars, railings and TV mounts'] }),
       t({ id: 'fr-roof', name: 'Roof framing and sheathing', trade: 'Framer', topics: ['roof_framing'], codes: ['B9.23', 'B9.19'],
-        checks: ['Trusses per truss layout and engineered sheets', 'Permanent bracing per truss drawings', 'Girder trusses and hangers', 'Roof-to-wall connections', 'Sheathing with clips, attic vent openings provided'], photo: true }),
+        checks: ['Trusses per truss layout and engineered sheets', 'Permanent bracing per truss drawings', 'Girder trusses and hangers', 'Roof-to-wall connections', 'Sheathing with clips, attic vent openings provided'] }),
       t({ id: 'fr-stairs', name: 'Rough stair openings and stringers', trade: 'Framer', topics: ['stairs'], codes: ['B9.8'],
         checks: ['Opening size and headroom match stair drawings', 'Rise and run laid out per drawings'] }),
       t({ id: 'fr-garage', name: 'Attached garage framing', trade: 'Framer', topics: ['fire_separation', 'framing_walls'], codes: ['B9.35', 'B9.10'], when: (f) => f.garage === 'attached',
@@ -187,11 +231,11 @@ export const PHASES: PhaseDef[] = [
     summary: 'Roofing, sheathing membrane, windows and exterior doors. Ends weathertight.',
     items: [
       t({ id: 'e-roof', name: 'Roofing', trade: 'Roofer', topics: ['roofing'], codes: ['B9.26'],
-        checks: ['Eave protection and underlayment', 'Valley, wall and chimney flashing', 'Roof covering per spec and manufacturer', 'Roof vents per attic venting design'], photo: true }),
+        checks: ['Eave protection and underlayment', 'Valley, wall and chimney flashing', 'Roof covering per spec and manufacturer', 'Roof vents per attic venting design'] }),
       t({ id: 'e-wrap', name: 'Sheathing membrane / exterior air barrier', trade: 'Framer', topics: ['exterior_finish', 'insulation'], codes: ['B9.27', 'B9.25'],
-        checks: ['Laps shingled to shed water', 'Seams taped per manufacturer', 'Penetrations sealed'], photo: true }),
+        checks: ['Laps shingled to shed water', 'Seams taped per manufacturer', 'Penetrations sealed'] }),
       t({ id: 'e-windows', name: 'Windows', trade: 'Windows & doors', topics: ['windows_doors', 'energy'], codes: ['B9.7', 'B9.9', 'B12'], after: ['e-wrap'],
-        checks: ['Delivery matches window schedule (sizes, styles)', 'Thermal rating meets SB-12 package', 'Rough openings match opening chart', 'Sill pans and flashing per detail', 'Bedroom egress windows sized correctly', 'Installed and shimmed per manufacturer'], photo: true }),
+        checks: ['Delivery matches window schedule (sizes, styles)', 'Thermal rating meets SB-12 package', 'Rough openings match opening chart', 'Sill pans and flashing per detail', 'Bedroom egress windows sized correctly', 'Installed and shimmed per manufacturer'] }),
       t({ id: 'e-doors', name: 'Exterior doors', trade: 'Windows & doors', topics: ['windows_doors'], codes: ['B9.7'], after: ['e-wrap'],
         checks: ['Delivery matches door schedule', 'Sill pan and flashing', 'Installed square, hardware operates'] }),
     ],
@@ -200,14 +244,14 @@ export const PHASES: PhaseDef[] = [
     id: 'mep', name: 'Mechanical, electrical & plumbing rough-in', short: 'MEP rough-in', requires: ['env'],
     summary: 'HVAC, plumbing, electrical and gas run in parallel; all inspected before close-in.',
     items: [
-      t({ id: 'm-hvac', name: 'HVAC rough-in', trade: 'HVAC', topics: ['hvac', 'energy'], codes: ['B9.33', 'B9.32', 'F280', 'B12'],
-        checks: ['Heat loss / gain calculation and duct design on file', 'Duct layout matches HVAC drawing', 'Supply and return sizes per design', 'Duct joints sealed', 'Equipment specs match approved furnace / heat pump', 'Combustion venting clearances'], photo: true }),
+      t({ id: 'm-hvac', perRoom: ROOM_CHECKS.hvac, name: 'HVAC rough-in', trade: 'HVAC', topics: ['hvac', 'energy'], codes: ['B9.33', 'B9.32', 'F280', 'B12'],
+        checks: ['Heat loss / gain calculation and duct design on file', 'Duct layout matches HVAC drawing', 'Supply and return sizes per design', 'Duct joints sealed', 'Equipment specs match approved furnace / heat pump', 'Combustion venting clearances'] }),
       t({ id: 'm-hrv', name: 'HRV / ERV and exhaust ducting', trade: 'HVAC', topics: ['hvac'], codes: ['B9.32'], when: (f) => f.hrv,
         checks: ['Unit location per drawings', 'Supply / exhaust duct routing', 'Exterior hoods located away from contaminants', 'Bath fans ducted to exterior'] }),
-      t({ id: 'm-plumb', name: 'Plumbing rough-in', trade: 'Plumber', topics: ['plumbing', 'bathrooms', 'kitchen'], codes: ['B7', 'B9.31'],
-        checks: ['Drain, waste and vent layout', 'Water distribution and shut-offs', 'Fixture locations match drawings', 'Water service sizing on file', 'Test applied and holding'], photo: true }),
-      t({ id: 'm-elec', name: 'Electrical rough-in', trade: 'Electrician', topics: ['electrical', 'kitchen'], codes: ['OESC', 'B9.34', 'B9.10', 'B9.33'],
-        checks: ['ESA notification filed by electrical contractor', 'Panel location and service size', 'Boxes and circuits per electrical plan', 'Smoke and CO alarm locations wired and interconnected', 'Kitchen appliance circuits per appliance specs', 'Low voltage / data runs'], photo: true }),
+      t({ id: 'm-plumb', perRoom: ROOM_CHECKS.plumb, name: 'Plumbing rough-in', trade: 'Plumber', topics: ['plumbing', 'bathrooms', 'kitchen'], codes: ['B7', 'B9.31'],
+        checks: ['Drain, waste and vent layout', 'Water distribution and shut-offs', 'Fixture locations match drawings', 'Water service sizing on file', 'Test applied and holding'] }),
+      t({ id: 'm-elec', perRoom: ROOM_CHECKS.elec, name: 'Electrical rough-in', trade: 'Electrician', topics: ['electrical', 'kitchen'], codes: ['OESC', 'B9.34', 'B9.10', 'B9.33'],
+        checks: ['ESA notification filed by electrical contractor', 'Panel location and service size', 'Boxes and circuits per electrical plan', 'Smoke and CO alarm locations wired and interconnected', 'Kitchen appliance circuits per appliance specs', 'Low voltage / data runs'] }),
       t({ id: 'm-gas', name: 'Gas piping', trade: 'Gas fitter', topics: ['gas', 'kitchen'], codes: ['GAS'], when: (f) => f.gas,
         checks: ['Piping sized for connected appliances', 'Appliance locations confirmed', 'Pressure test performed and tagged'] }),
       t({ id: 'm-fireplace', name: 'Fireplace and chimney', trade: 'HVAC', topics: ['fireplace'], codes: ['B9.22', 'B9.21', 'GAS'], when: (f) => f.fireplace !== 'none',
@@ -223,9 +267,9 @@ export const PHASES: PhaseDef[] = [
     summary: 'Insulation, vapour and air barriers, fire separations. Inspected before drywall.',
     items: [
       t({ id: 'i-ins', name: 'Insulation', trade: 'Insulation', topics: ['insulation', 'energy'], codes: ['B9.25', 'B12'],
-        checks: ['R-values match SB-12 compliance package', 'Rim joists insulated and sealed', 'No gaps, voids or compression', 'Installed per manufacturer'], photo: true }),
+        checks: ['R-values match SB-12 compliance package', 'Rim joists insulated and sealed', 'No gaps, voids or compression', 'Installed per manufacturer'] }),
       t({ id: 'i-vb', name: 'Vapour barrier and air sealing', trade: 'Insulation', topics: ['insulation', 'energy'], codes: ['B9.25'], after: ['i-ins'],
-        checks: ['Poly lapped and sealed at joints', 'Electrical boxes and penetrations sealed', 'Top plates and rim sealed'], photo: true }),
+        checks: ['Poly lapped and sealed at joints', 'Electrical boxes and penetrations sealed', 'Top plates and rim sealed'] }),
       t({ id: 'i-firesep', name: 'Garage fire separation and fire stopping', trade: 'Insulation', topics: ['fire_separation'], codes: ['B9.10', 'B9.35'], when: (f) => f.garage === 'attached',
         checks: ['Gas-proofing at penetrations', 'Fire stopping at openings', 'Door to house meets requirements'] }),
       i({ id: 'insp-insul', name: 'Insulation and vapour barrier', authority: 'Municipal', codes: ['C1.3.5', 'B9.25'], after: ['i-vb'], howTo: MUNI }),
@@ -236,7 +280,7 @@ export const PHASES: PhaseDef[] = [
     id: 'dry', name: 'Drywall', short: 'Drywall', requires: ['ins'],
     summary: 'Board, fire-rated assemblies and finishing.',
     items: [
-      t({ id: 'd-hang', name: 'Hang drywall', trade: 'Drywall', topics: ['interior_finish', 'fire_separation'], codes: ['B9.29', 'B9.10'],
+      t({ id: 'd-hang', perRoom: ROOM_CHECKS.board, name: 'Hang drywall', trade: 'Drywall', topics: ['interior_finish', 'fire_separation'], codes: ['B9.29', 'B9.10'],
         checks: ['Moisture-resistant board in wet areas', 'Fire-rated board where separations required', 'Fastening pattern per manufacturer'] }),
       i({ id: 'insp-firesep', name: 'Fire separations and closures', authority: 'Municipal', codes: ['C1.3.5', 'B9.10'], after: ['d-hang'], howTo: MUNI, when: (f) => f.garage === 'attached' }),
       t({ id: 'd-finish', name: 'Tape, finish and prime', trade: 'Drywall', topics: ['interior_finish'], codes: ['B9.29'], after: ['d-hang'],
@@ -248,9 +292,9 @@ export const PHASES: PhaseDef[] = [
     summary: 'Masonry, stucco, siding, trim and final grading. Runs alongside the interior.',
     items: [
       t({ id: 'x-masonry', name: 'Masonry veneer', trade: 'Masonry', topics: ['masonry', 'exterior_finish'], codes: ['B9.20'], when: hasBrick,
-        checks: ['Steel lintels sized per drawings with required end bearing', 'Brick ties at spacing shown', 'Base and opening flashing with weep holes', 'Brick sills sloped and sealed', 'Air space kept clear of mortar'], photo: true }),
+        checks: ['Steel lintels sized per drawings with required end bearing', 'Brick ties at spacing shown', 'Base and opening flashing with weep holes', 'Brick sills sloped and sealed', 'Air space kept clear of mortar'] }),
       t({ id: 'x-stucco', name: 'Stucco', trade: 'Stucco', topics: ['exterior_finish'], codes: ['B9.28'], when: (f) => f.cladding.includes('stucco'),
-        checks: ['System matches technical spec', 'Drainage plane and lath', 'Clearance to grade', 'Control joints and flashing'], photo: true }),
+        checks: ['System matches technical spec', 'Drainage plane and lath', 'Clearance to grade', 'Control joints and flashing'] }),
       t({ id: 'x-siding', name: 'Siding', trade: 'Siding', topics: ['exterior_finish'], codes: ['B9.27'], when: (f) => f.cladding.includes('siding'),
         checks: ['Product and colour per spec', 'Installed per manufacturer', 'Flashing at openings and transitions', 'Clearances to grade and roof'] }),
       t({ id: 'x-trim', name: 'Window trim, soffit, fascia and eavestroughs', trade: 'Metal work (soffit, fascia, eaves)', topics: ['exterior_finish', 'roofing'], codes: ['B9.27'],
@@ -265,16 +309,16 @@ export const PHASES: PhaseDef[] = [
     summary: 'Stairs and railings, bathrooms, kitchen, flooring, trim and paint.',
     items: [
       t({ id: 'n-stairs', name: 'Stairs and railings', trade: 'Stairs & railings', topics: ['stairs'], codes: ['B9.8'],
-        checks: ['Rise, run, width and headroom match stair drawings', 'Handrail height and continuity', 'Guard height and opening sizes', 'Railing spec and finish'], photo: true }),
+        checks: ['Rise, run, width and headroom match stair drawings', 'Handrail height and continuity', 'Guard height and opening sizes', 'Railing spec and finish'] }),
       t({ id: 'n-bath-{n}', name: 'Bathroom {n}', trade: 'Tile', topics: ['bathrooms'], codes: ['B9.31', 'B9.29', 'B9.32'], repeat: 'bathrooms',
-        checks: ['Shower waterproofing per manufacturer, flood-tested', 'Blocking for grab bars and accessories', 'Exhaust fan ducted outside and working', 'Finishes match selections'], photo: true }),
+        checks: ['Shower waterproofing per manufacturer, flood-tested', 'Blocking for grab bars and accessories', 'Exhaust fan ducted outside and working', 'Finishes match selections'] }),
       t({ id: 'n-kitchen', name: 'Kitchen', trade: 'Cabinets & counters', topics: ['kitchen'], codes: ['B9.32'],
         checks: ['Cabinets match cabinet plan', 'Appliance sizes fit openings', 'Gas and electrical at each appliance match specs', 'Range hood vented outside', 'Countertops templated and installed per surface plan'] }),
-      t({ id: 'n-floor', name: 'Flooring', trade: 'Flooring', topics: ['interior_finish'], codes: ['B9.30'],
+      t({ id: 'n-floor', perRoom: ROOM_CHECKS.floor, name: 'Flooring', trade: 'Flooring', topics: ['interior_finish'], codes: ['B9.30'],
         checks: ['Subfloor flat and dry', 'Product and layout per selections', 'Transitions'] }),
-      t({ id: 'n-trim', name: 'Interior doors and trim', trade: 'Trim & doors', topics: ['interior_finish'], codes: [],
+      t({ id: 'n-trim', perRoom: ROOM_CHECKS.trim, name: 'Interior doors and trim', trade: 'Trim & doors', topics: ['interior_finish'], codes: [],
         checks: ['Doors hung and swing per plan', 'Casing and baseboard per style guide'] }),
-      t({ id: 'n-paint', name: 'Paint', trade: 'Painter', topics: ['interior_finish'], codes: [],
+      t({ id: 'n-paint', perRoom: ROOM_CHECKS.paint, name: 'Paint', trade: 'Painter', topics: ['interior_finish'], codes: [],
         checks: ['Colours match paint palette', 'Coats and sheen per spec', 'Touch-ups after trades'] }),
     ],
   },
@@ -316,11 +360,18 @@ export interface PlanTask {
   trade: string;
   topics: Topic[];
   codes: string[];
-  checks: string[];
-  photo: boolean;
+  /** Base checks have ids "0", "1"… (stable); room checks are "<roomId>:<n>". */
+  checks: PlanCheck[];
+  /** Room sub-sections of the checklist, in display order. */
+  groups: CheckGroup[];
+  /** The room this whole task is for (e.g. one bathroom). */
+  room?: Room;
   after: string[];
   needs: string[];
 }
+
+export interface PlanCheck { id: string; text: string; group?: string }
+export interface CheckGroup { id: string; label: string; room: Room }
 
 export interface PlanInsp {
   kind: 'insp';
@@ -358,14 +409,25 @@ export function normalizeFeatures(raw: Partial<Features> | null | undefined): Fe
   f.storeys = Math.min(4, Math.max(1, Math.round(Number(f.storeys) || 1)));
   f.bathrooms = Math.min(10, Math.max(0, Math.round(Number(f.bathrooms) || 0)));
   if (!Array.isArray(f.cladding)) f.cladding = [];
+  f.rooms = Array.isArray(f.rooms) ? f.rooms.filter((r) => r && r.id && r.name) : [];
   return f;
 }
+
+/** Rooms ordered by level (as first seen) then name, for consistent sub-sections. */
+export function sortRooms(rooms: Room[]): Room[] {
+  const levels = [...new Set(rooms.map((r) => r.level))];
+  return [...rooms].sort((a, b) => levels.indexOf(a.level) - levels.indexOf(b.level) || a.name.localeCompare(b.name));
+}
+
+export const roomLabel = (r: Room) => (r.level ? `${r.name} · ${r.level}` : r.name);
 
 export function buildPlan(rawFeatures: Partial<Features> | null | undefined): Plan {
   const f = normalizeFeatures(rawFeatures);
   const phases: PlanPhase[] = [];
   const tasks: Record<string, PlanTask> = {};
   const insps: Record<string, PlanInsp> = {};
+  const rooms = sortRooms(f.rooms);
+  const baths = rooms.filter((r) => r.kind === 'bathroom');
 
   for (const ph of PHASES) {
     const items: Array<PlanTask | PlanInsp> = [];
@@ -377,13 +439,26 @@ export function buildPlan(rawFeatures: Partial<Features> | null | undefined): Pl
         insps[pi.key] = pi;
         continue;
       }
-      const count = it.repeat === 'storeys' ? f.storeys : it.repeat === 'bathrooms' ? f.bathrooms : 1;
+      // Bathrooms follow the confirmed rooms when there are any, otherwise the count.
+      const byRoom = it.repeat === 'bathrooms' && baths.length > 0;
+      const count = it.repeat === 'storeys' ? f.storeys : it.repeat === 'bathrooms' ? (byRoom ? baths.length : f.bathrooms) : 1;
       for (let n = 1; n <= count; n++) {
         if (it.repeat && it.whenN && !it.whenN(f, n)) continue;
         const sub = (s: string) => s.replace(/\{n\}/g, String(n)).replace(/\{level\}/g, LEVELS[n - 1] || `Level ${n}`);
+        const room = byRoom ? baths[n - 1] : undefined;
+        const checks: PlanCheck[] = it.checks.map((text, i) => ({ id: String(i), text }));
+        const groups: CheckGroup[] = [];
+        if (it.perRoom) {
+          for (const r of rooms) {
+            const extra = it.perRoom(r);
+            if (!extra.length) continue;
+            groups.push({ id: r.id, label: roomLabel(r), room: r });
+            extra.forEach((text, j) => checks.push({ id: `${r.id}:${j}`, text, group: r.id }));
+          }
+        }
         const pt: PlanTask = {
-          kind: 'task', key: sub(it.id), name: sub(it.name), phase: ph.id, trade: it.trade, topics: it.topics,
-          codes: it.codes, checks: it.checks, photo: !!it.photo, after: (it.after || []).map(sub), needs: it.needs || [],
+          kind: 'task', key: sub(it.id), name: room ? `Bathroom: ${roomLabel(room)}` : sub(it.name), phase: ph.id, trade: it.trade,
+          topics: it.topics, codes: it.codes, checks, groups, room, after: (it.after || []).map(sub), needs: it.needs || [],
         };
         items.push(pt);
         tasks[pt.key] = pt;

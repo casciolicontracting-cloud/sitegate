@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { codeRef, OBC_EDITION } from '@/lib/codes';
-import { TOPIC_LABEL, type Topic } from '@/lib/template';
+import { TOPIC_LABEL, type Box, type PlanCheck, type Topic } from '@/lib/template';
 import { newId, uploadFile } from '@/lib/supabase';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Inspection, InspStatus, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
-import { fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
+import { DrawingCrop, fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
 
 function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
@@ -57,30 +57,36 @@ function CodeList({ codes }: { codes: string[] }) {
 
 export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStore; nav: Nav; taskKey: string; onClose: () => void }) {
   const { data, plan, engine, userId } = store;
-  const [viewSheet, setViewSheet] = useState<Sheet | null>(null);
+  const [viewSheet, setViewSheet] = useState<{ sheet: Sheet; focus?: Box } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [noteKind, setNoteKind] = useState<'note' | 'question'>('note');
   const [defTitle, setDefTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [completing, setCompleting] = useState(false);
   if (!data || !plan || !engine) return null;
   const t = plan.tasks[taskKey];
   const st = data.tasks[taskKey];
   const status = engine.taskStatus(t);
   const locked = status === 'locked';
+  const verified = !!st?.verified_at;
   const blockers = engine.taskBlockers(t);
   const sheets = engine.linkedSheets(t);
+  const views = engine.drawingViews(t);
+  const roomSheet = engine.sheetById(t.room?.sheet);
   const dwgNotes = engine.drawingNotes(t);
-  const issues = engine.verifyIssues(t);
+  const issues = engine.completeIssues(t);
   const revised = engine.revisedSince(t);
   const notes = data.notes.filter((n) => n.task_key === taskKey);
   const defs = data.defs.filter((d) => d.task_key === taskKey);
   const contacts = data.contacts.filter((c) => c.trade === t.trade);
   const checks = st?.checks || {};
+  const left = t.checks.length - engine.checksDone(t);
   const who = (id: string | null) => (id && data.profiles[id]?.full_name) || 'a team member';
+  const open = (sheet: Sheet, focus?: Box) => setViewSheet({ sheet, focus });
 
-  const toggle = (i: number) => {
-    if (locked || st?.verified_at) return;
-    const next = { ...checks, [String(i)]: !checks[String(i)] };
+  const setChecks = (ids: string[], on: boolean) => {
+    if (locked || verified) return;
+    const next = { ...checks, ...Object.fromEntries(ids.map((id) => [id, on])) };
     store.saveTask(taskKey, { checks: next, started_at: st?.started_at || new Date().toISOString() }).catch(toastError);
   };
 
@@ -93,11 +99,12 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
     } catch (e) { toastError(e); } finally { setBusy(false); }
   }
 
-  async function verify() {
-    const revs = Object.fromEntries(sheets.map((s) => [s.id, s.revision || '']));
-    await store.saveTask(taskKey, { verified_at: new Date().toISOString(), verified_by: userId, sheet_revs: revs });
-    store.log('task_verified', { task: taskKey });
-    toast(`${t.name} verified.`);
+  async function complete() {
+    setCompleting(true);
+    try {
+      await store.completeTask(taskKey);
+      toast(`${t.name} complete.`);
+    } catch (e) { toastError(e); } finally { setCompleting(false); }
   }
 
   async function reopen() {
@@ -118,6 +125,13 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
     await store.addDef({ task_key: taskKey, phase_key: t.phase, trade: t.trade, title: defTitle.trim(), status: 'open' }).catch(toastError);
     setDefTitle('');
   }
+
+  const checkRow = (c: PlanCheck) => (
+    <label key={c.id} className={`check ${checks[c.id] ? 'done' : ''}`}>
+      <input type="checkbox" checked={!!checks[c.id]} disabled={locked || verified} onChange={() => setChecks([c.id], !checks[c.id])} />
+      <span>{c.text}</span>
+    </label>
+  );
 
   return (
     <Drawer title={t.name} sub={`${plan.byPhase[t.phase].name} · ${t.trade}`} pill={<TaskPill s={status} />} onClose={onClose}>
@@ -141,12 +155,33 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
         </div>
       )}
 
+      {!verified && (
+        <section className="panel-box">
+          <button className="btn btn-ok" style={{ alignSelf: 'flex-start' }} disabled={issues.length > 0 || completing} onClick={complete}>
+            {completing ? 'Completing…' : left > 0 ? `Complete task (${left} check${left === 1 ? '' : 's'} left)` : 'Complete task'}
+          </button>
+          {issues.length > 0
+            ? <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{issues.map((x) => <li key={x}>{x}</li>)}</ul>
+            : <p className="small muted">Ticks every remaining check and signs the task off under your name, with the drawing revisions it was checked against.</p>}
+        </section>
+      )}
+
       <section>
         <div className="section-head" style={{ margin: 0 }}><h3>Drawings</h3><span className="small muted">Linked by topic</span></div>
+        {t.room?.box && roomSheet && (
+          <DrawingCrop path={roomSheet.image_path} box={t.room.box} label={`${t.room.name} on ${roomSheet.number || 'plan'}`} onOpen={() => open(roomSheet, t.room!.box)} />
+        )}
+        {views.length > 0 && (
+          <div className="crops">
+            {views.map((v, i) => (
+              <DrawingCrop key={i} path={v.sheet.image_path} box={v.box} label={`${v.label} · ${v.sheet.number || 'sheet'}`} onOpen={() => open(v.sheet, v.box)} />
+            ))}
+          </div>
+        )}
         {sheets.length === 0 ? <p className="small muted">No sheets are tagged for {t.topics.map((x) => TOPIC_LABEL[x as Topic]).join(', ')}. Tag sheets on the Drawings tab.</p> : (
           <div className="row">
             {sheets.map((s) => (
-              <button key={s.id} className="sheet-chip" onClick={() => setViewSheet(s)}>{s.number || 'Sheet'}{s.revision ? ` · Rev ${s.revision}` : ''}</button>
+              <button key={s.id} className="sheet-chip" onClick={() => open(s)}>{s.number || 'Sheet'}{s.revision ? ` · Rev ${s.revision}` : ''}</button>
             ))}
           </div>
         )}
@@ -156,7 +191,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
             {dwgNotes.map((n, i) => (
               <div key={i} className="from-dwg">
                 {n.text}{' '}
-                <button className="btn-link mono" onClick={() => setViewSheet(n.sheet)}>{n.sheet.number || 'sheet'}{n.where ? ` · ${n.where}` : ''}</button>
+                <button className="btn-link mono" onClick={() => open(n.sheet, n.box)}>{n.sheet.number || 'sheet'}{n.where ? ` · ${n.where}` : ''}</button>
               </div>
             ))}
             <span className="small muted">Read from the sheets by Claude. Confirm against the drawing before building to it.</span>
@@ -166,18 +201,35 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
 
       <section>
         <div className="section-head" style={{ margin: 0 }}><h3>Checklist</h3><span className="small muted num">{engine.checksDone(t)}/{t.checks.length}</span></div>
-        <div className="checks">
-          {t.checks.map((c, i) => (
-            <label key={i} className={`check ${checks[String(i)] ? 'done' : ''}`}>
-              <input type="checkbox" checked={!!checks[String(i)]} disabled={locked || !!st?.verified_at} onChange={() => toggle(i)} />
-              <span>{c}</span>
-            </label>
-          ))}
-        </div>
+        <div className="checks">{t.checks.filter((c) => !c.group).map(checkRow)}</div>
+        {t.groups.map((g) => {
+          const items = t.checks.filter((c) => c.group === g.id);
+          const done = engine.checksDone(t, g.id);
+          const sheet = engine.sheetById(g.room.sheet);
+          return (
+            <div key={g.id} className="room-group">
+              <div className="room-group-head">
+                <div className="stack" style={{ gap: 2 }}>
+                  <h4>{g.label}</h4>
+                  <span className="small muted num">{done}/{items.length}</span>
+                </div>
+                <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                  {sheet && g.room.box && (
+                    <span className="room-thumb"><DrawingCrop path={sheet.image_path} box={g.room.box} label={sheet.number || 'Plan'} onOpen={() => open(sheet, g.room.box)} /></span>
+                  )}
+                  {!locked && !verified && done < items.length && (
+                    <button className="btn btn-sm" onClick={() => setChecks(items.map((c) => c.id), true)}>Room done</button>
+                  )}
+                </div>
+              </div>
+              <div className="checks">{items.map(checkRow)}</div>
+            </div>
+          );
+        })}
       </section>
 
       <section>
-        <div className="section-head" style={{ margin: 0 }}><h3>Photos</h3>{t.photo && <span className={`pill ${engine.photoOk(t) ? 'ok' : 'warn'}`}>{engine.photoOk(t) ? 'Evidence added' : 'Required'}</span>}</div>
+        <div className="section-head" style={{ margin: 0 }}><h3>Photos</h3><span className="small muted">Optional</span></div>
         {(st?.photos || []).length > 0 && (
           <div className="photos">{st!.photos.map((p) => <StoredImage key={p} path={p} alt="Site photo" />)}</div>
         )}
@@ -238,23 +290,17 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
         </form>
       </section>
 
-      <section className="panel-box">
-        <h3>Sign-off</h3>
-        {st?.verified_at ? (
-          <>
-            <p>Verified by {who(st.verified_by)} on {fmtDate(st.verified_at)}.</p>
-            <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => reopen().catch(toastError)}>Reopen task</button>
-          </>
-        ) : (
-          <>
-            {issues.length > 0 && <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{issues.map((x) => <li key={x}>{x}</li>)}</ul>}
-            <button className="btn btn-ok" style={{ alignSelf: 'flex-start' }} disabled={issues.length > 0} onClick={() => verify().catch(toastError)}>Verify and release</button>
-            <p className="small muted">Verifying records you, the date and the drawing revisions this work was checked against.</p>
-          </>
-        )}
-      </section>
+      {verified && (
+        <section className="panel-box">
+          <h3>Sign-off</h3>
+          <p>Completed by {who(st!.verified_by)} on {fmtDate(st!.verified_at)}.</p>
+          <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => reopen().catch(toastError)}>Reopen task</button>
+        </section>
+      )}
 
-      {viewSheet && <SheetViewer path={viewSheet.image_path} title={`${viewSheet.number} ${viewSheet.title}`} onClose={() => setViewSheet(null)} />}
+      {viewSheet && (
+        <SheetViewer path={viewSheet.sheet.image_path} title={`${viewSheet.sheet.number} ${viewSheet.sheet.title}`} focus={viewSheet.focus} onClose={() => setViewSheet(null)} />
+      )}
     </Drawer>
   );
 }

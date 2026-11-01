@@ -11,13 +11,13 @@ checklists, Ontario Building Code references, inspections, deficiencies and trad
 
 1. **Project setup** – name, address, municipality, permit number.
 2. **Upload drawings** – PDFs are rendered to page images in the browser (pdf.js) and stored in Supabase Storage. The PDF text layer is kept when present.
-3. **Read with Claude** – `POST /api/analyze-sheet` sends the whole sheet plus four quadrant crops and the text layer to Claude, which returns sheet number, title, discipline, revision, topics, house features, key specs ("notes") and questions for the designer. Runs as the signed-in user, so row-level security applies.
+3. **Read with Claude** – `POST /api/analyze-sheet` sends the whole sheet plus four quadrant crops and the text layer to Claude, which returns sheet number, title, discipline, revision, topics, house features, key specs ("notes"), labelled rooms and drawing views (with their location on the sheet) and questions for the designer. Tasks show cropped pictures of the views and rooms that apply to them. Runs as the signed-in user, so row-level security applies.
 4. **Review** – the supervisor corrects the sheet register, topics and house features. Nothing read by AI is used until confirmed here.
 5. **Plan** – `lib/template.ts` + confirmed features → phases, tasks and inspections (`buildPlan`). Tasks link to sheets by shared topics; specs read from those sheets appear on the task as "From the drawings".
 6. **Execution** – `lib/status.ts` (`Engine`) enforces the stage gates:
    - A **phase** unlocks when every phase in `requires` has passed its gate.
    - A **task** is blocked by unverified `after` tasks and uncleared `needs` inspections (hold points).
-   - A task can be **verified** only when all checks are ticked, required photos exist and no deficiency on it is open. Verification records who, when, and the revision of every linked sheet.
+   - **Complete task** ticks every remaining check and verifies in one tap; it is blocked only by unfinished earlier steps, required inspections, or an open deficiency on the task. Photos are optional. Verification records who, when, and the revision of every linked sheet.
    - A **gate** passes when all tasks are verified, all inspections are passed or marked not required (with a reason), and no deficiencies are open in the phase.
    - If a linked sheet's revision changes after verification, the task is flagged for recheck.
 
@@ -59,8 +59,9 @@ See `.env.example`.
 | `ANTHROPIC_API_KEY` | Vercel only | Enables drawing analysis. Without it, sheet details are entered manually |
 | `ANTHROPIC_MODEL` | optional | Defaults to `claude-sonnet-5-5` |
 
-In Supabase → Authentication → URL Configuration, set the **Site URL** to the Vercel URL so
-sign-up confirmation emails link back to the app.
+Sign-in is a name plus one shared team access code (see `supabase/migrations/0002_access_code_and_rooms.sql`).
+In Supabase → Authentication, turn on **Allow anonymous sign-ins**. Change the code in the SQL editor with
+`select private.set_access_code('NEW-CODE');`.
 
 ## Local development
 

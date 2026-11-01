@@ -5,12 +5,14 @@
 // is generated. Nothing from the drawings is used until a person confirms it.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { analysisImages, renderFile } from '@/lib/pdf';
-import { fileUrl, newId, supabase, uploadFile } from '@/lib/supabase';
+import { renderFile } from '@/lib/pdf';
+import { aiEnabled, analyzeSheet } from '@/lib/analyze';
+import { newId, uploadFile } from '@/lib/supabase';
 import { aggregateFeatures } from '@/lib/status';
 import { buildPlan, DEFAULT_FEATURES, normalizeFeatures, TOPICS, TOPIC_LABEL, type Features } from '@/lib/template';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Sheet } from '@/lib/types';
+import { finalizeRooms, RoomsEditor } from './Rooms';
 import { SheetViewer, StoredImage, toast, toastError } from './ui';
 
 const DISCIPLINES = ['Architectural', 'Structural', 'Mechanical', 'Electrical', 'Plumbing', 'Site / civil', 'Energy', 'Other'];
@@ -39,14 +41,14 @@ function UploadStep({ store }: { store: ProjectStore }) {
   const sheets = data!.sheets;
   const [progress, setProgress] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+  const [aiOn, setAiOn] = useState<boolean | null>(null);
   const [running, setRunning] = useState(false);
   const stopRef = useRef(false);
   const blobs = useRef(new Map<string, Blob>());
   const [view, setView] = useState<Sheet | null>(null);
 
   useEffect(() => {
-    fetch('/api/analyze-sheet').then((r) => r.json()).then((j) => setAiEnabled(!!j.enabled)).catch(() => setAiEnabled(false));
+    aiEnabled().then(setAiOn);
   }, []);
 
   async function ingest(files: FileList | File[]) {
@@ -82,25 +84,13 @@ function UploadStep({ store }: { store: ProjectStore }) {
     if (!todo.length) return;
     stopRef.current = false;
     setRunning(true);
-    const { data: sess } = await supabase().auth.getSession();
-    const token = sess.session?.access_token;
     let done = 0;
     for (const s of todo) {
       if (stopRef.current) break;
       setProgress(`Claude is reading sheet ${done + 1} of ${todo.length}${s.file_name ? ` (${s.file_name} p.${s.page})` : ''}…`);
       store.setSheetLocal({ ...s, status: 'analyzing' });
       try {
-        const src = blobs.current.get(s.id) || (await fileUrl(s.image_path));
-        if (!src) throw new Error('Sheet image missing');
-        const images = await analysisImages(src);
-        const r = await fetch('/api/analyze-sheet', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-          body: JSON.stringify({ sheetId: s.id, images, text: s.text_layer || '' }),
-        });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || `Analysis failed (${r.status})`);
-        store.setSheetLocal(j.sheet as Sheet);
+        store.setSheetLocal(await analyzeSheet(s, blobs.current.get(s.id)));
       } catch (e) {
         store.setSheetLocal({ ...s, status: 'failed' });
         toastError(e);
@@ -148,7 +138,7 @@ function UploadStep({ store }: { store: ProjectStore }) {
           <div className="section-head">
             <h2>{counts.total} sheet{counts.total === 1 ? '' : 's'} <span className="muted small num">· {counts.analyzed} read</span></h2>
             <div className="row">
-              {aiEnabled && !running && counts.pending > 0 && (
+              {aiOn && !running && counts.pending > 0 && (
                 <button className="btn btn-primary" onClick={() => analyzeAll()}>Read {counts.pending} sheet{counts.pending === 1 ? '' : 's'} with Claude</button>
               )}
               {running && <button className="btn" onClick={() => { stopRef.current = true; }}>Stop after this sheet</button>}
@@ -157,7 +147,7 @@ function UploadStep({ store }: { store: ProjectStore }) {
               </button>
             </div>
           </div>
-          {aiEnabled === false && (
+          {aiOn === false && (
             <p className="notice warn">AI drawing analysis isn&apos;t switched on for this deployment, so you&apos;ll enter sheet details in the next step. To turn it on, add an <span className="mono">ANTHROPIC_API_KEY</span> in the Vercel project settings.</p>
           )}
           <div className="sheets">
@@ -174,7 +164,7 @@ function UploadStep({ store }: { store: ProjectStore }) {
                   <span className="small">{s.title || <span className="muted">{s.file_name} · page {s.page}</span>}</span>
                   {s.revision && <span className="small muted">Rev {s.revision}</span>}
                   <div className="row">
-                    {s.status === 'failed' && aiEnabled && !running && <button className="btn btn-sm" onClick={() => analyzeAll([s])}>Retry</button>}
+                    {s.status === 'failed' && aiOn && !running && <button className="btn btn-sm" onClick={() => analyzeAll([s])}>Retry</button>}
                     <button className="btn btn-sm btn-ghost" disabled={running} onClick={() => store.deleteSheet(s.id).catch(toastError)}>Remove</button>
                   </div>
                 </div>
@@ -216,7 +206,9 @@ function ReviewStep({ store }: { store: ProjectStore }) {
   async function generate() {
     setBusy(true);
     try {
-      await store.updateProject({ features: f, stage: 'active' });
+      const rooms = finalizeRooms(f.rooms);
+      const baths = rooms.filter((r) => r.kind === 'bathroom').length;
+      await store.updateProject({ features: { ...f, rooms, bathrooms: baths || f.bathrooms }, stage: 'active' });
       const keep = questions.filter((_, i) => keepQ[String(i)]);
       for (const { q, s } of keep) {
         await store.addNote({ kind: 'question', body: q, task_key: 'pre-drawings', phase_key: 'pre', trade: 'Designer / architect',
@@ -308,6 +300,15 @@ function ReviewStep({ store }: { store: ProjectStore }) {
         <div className="field"><span>HRV / ERV</span>{sel('hrv', [[true, 'Yes'], [false, 'No']])}</div>
         <div className="field"><span>Fireplace</span>{sel('fireplace', [['none', 'None'], ['gas', 'Gas'], ['wood', 'Wood-burning']])}</div>
         <div className="field"><span>Water and sewage</span>{sel('servicing', [['municipal', 'Municipal services'], ['septic_well', 'Septic and well']])}</div>
+      </section>
+
+      <section className="panel-box stack">
+        <h2>Rooms</h2>
+        <p className="muted small">
+          {f.rooms.length ? 'Read from the floor plans. ' : 'No rooms were read yet. Add them here, or leave this empty to skip room sections. '}
+          Each room gets its own section in the HVAC, plumbing, electrical, drywall, flooring, trim and paint checklists, and each bathroom becomes its own task.
+        </p>
+        <RoomsEditor rooms={f.rooms} sheets={sheets} onChange={(rooms) => setF({ ...f, rooms })} />
       </section>
 
       {questions.length > 0 && (

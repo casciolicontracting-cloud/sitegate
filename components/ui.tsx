@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fileUrl } from '@/lib/supabase';
+import type { Box } from '@/lib/template';
 import type { GateStatus, TaskStatus } from '@/lib/status';
 import { GATE_LABEL, INSP_LABEL, TASK_LABEL } from '@/lib/status';
 import type { InspStatus } from '@/lib/types';
@@ -72,14 +73,51 @@ export function StoredImage({ path, alt, className }: { path: string | null | un
   return <img src={url} alt={alt} className={className} loading="lazy" />;
 }
 
-export function SheetViewer({ path, title, onClose }: { path: string | null; title: string; onClose: () => void }) {
+/** Widen a box a little so a crop shows its surroundings, and keep it on the sheet. */
+function padBox([x0, y0, x1, y1]: Box, pad = 0.02): Box {
+  return [Math.max(0, x0 - pad), Math.max(0, y0 - pad), Math.min(1, x1 + pad), Math.min(1, y1 + pad)];
+}
+
+/**
+ * A cropped view of part of a stored sheet image. The full image is positioned inside
+ * a clipped frame, so no canvas work (or extra upload) is needed.
+ */
+export function DrawingCrop({ path, box, label, onOpen }: { path: string | null; box: Box; label: string; onOpen: () => void }) {
   const url = useFileUrl(path);
-  const [zoom, setZoom] = useState(1);
+  const [ratio, setRatio] = useState<number | null>(null); // sheet width / height
+  const [x0, y0, x1, y1] = padBox(box);
+  const w = x1 - x0, h = y1 - y0;
+  return (
+    <button type="button" className="crop" onClick={onOpen} aria-label={`Open drawing: ${label}`}>
+      <span className="crop-frame" style={{ aspectRatio: ratio ? `${w * ratio} / ${h}` : '4 / 3' }}>
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt="" loading="lazy" onLoad={(e) => setRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
+            style={{ width: `${100 / w}%`, height: `${100 / h}%`, left: `${(-x0 / w) * 100}%`, top: `${(-y0 / h) * 100}%` }} />
+        ) : <span className="muted small" style={{ padding: 8 }}>Loading…</span>}
+      </span>
+      <span className="crop-label small">{label}</span>
+    </button>
+  );
+}
+
+export function SheetViewer({ path, title, focus, onClose }: { path: string | null; title: string; focus?: Box; onClose: () => void }) {
+  const url = useFileUrl(path);
+  const fb = focus ? padBox(focus) : null;
+  const [zoom, setZoom] = useState(fb ? Math.min(6, Math.max(1, 0.9 / Math.max(fb[2] - fb[0], fb[3] - fb[1]))) : 1);
+  const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
+  // Open scrolled to the focus area.
+  const onImg = (img: HTMLImageElement) => {
+    const el = scroller.current;
+    if (!el || !fb) return;
+    el.scrollLeft = fb[0] * img.clientWidth - 12;
+    el.scrollTop = fb[1] * img.clientHeight - 12;
+  };
   return (
     <div className="viewer" role="dialog" aria-label={title}>
       <div className="viewer-bar">
@@ -89,9 +127,9 @@ export function SheetViewer({ path, title, onClose }: { path: string | null; tit
         <button className="btn btn-sm" onClick={() => setZoom((z) => Math.min(6, z * 1.5))} aria-label="Zoom in">+</button>
         <button className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
-      <div className="viewer-img">
+      <div className="viewer-img" ref={scroller}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {url ? <img src={url} alt={title} style={{ width: `${zoom * 100}%` }} /> : <p className="muted" style={{ padding: 20 }}>Loading sheet…</p>}
+        {url ? <img src={url} alt={title} style={{ width: `${zoom * 100}%` }} onLoad={(e) => onImg(e.currentTarget)} /> : <p className="muted" style={{ padding: 20 }}>Loading sheet…</p>}
       </div>
     </div>
   );

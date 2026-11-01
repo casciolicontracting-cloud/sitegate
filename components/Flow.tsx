@@ -3,7 +3,7 @@
 import { FLOW_ROWS, type PlanPhase } from '@/lib/template';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Nav } from './ProjectApp';
-import { GatePill, InspPill, Meter, TaskPill } from './ui';
+import { GatePill, InspPill, Meter, TaskPill, toast, toastError } from './ui';
 
 export function FlowChart({ store, nav }: { store: ProjectStore; nav: Nav }) {
   const { plan, engine } = store;
@@ -89,11 +89,12 @@ export function PhaseView({ store, nav, phaseId }: { store: ProjectStore; nav: N
               return (
                 <div className="step" key={it.key}>
                   <span className={`dot ${s}`}>{s === 'verified' ? '✓' : idx + 1}</span>
+                  <div className="step-row">
                   <button className="step-card" onClick={() => nav.openTask(it.key)}>
                     <div className="row between"><strong>{it.name}</strong><TaskPill s={s} /></div>
                     <span className="small muted">
                       {it.trade} · <span className="num">{engine.checksDone(it)}/{it.checks.length}</span> checks
-                      {it.photo ? ' · photo required' : ''}
+                      {it.groups.length ? ` · ${it.groups.length} room${it.groups.length === 1 ? '' : 's'}` : ''}
                       {engine.linkedSheets(it).length ? ` · ${engine.linkedSheets(it).length} sheet${engine.linkedSheets(it).length === 1 ? '' : 's'}` : ''}
                     </span>
                     {s === 'locked' && <span className="small muted">Waiting on {engine.taskBlockers(it).map((b) => b.label).join(', ')}</span>}
@@ -104,6 +105,11 @@ export function PhaseView({ store, nav, phaseId }: { store: ProjectStore; nav: N
                       </span>
                     )}
                   </button>
+                  {engine.canComplete(it) && (
+                    <button className="btn btn-sm btn-ok btn-done" aria-label={`Complete ${it.name}`}
+                      onClick={() => store.completeTask(it.key).then(() => toast(`${it.name} complete.`)).catch(toastError)}>Complete</button>
+                  )}
+                  </div>
                 </div>
               );
             }

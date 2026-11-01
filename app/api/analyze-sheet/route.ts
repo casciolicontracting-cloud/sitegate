@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { TOPICS } from '@/lib/template';
+import { ROOM_KINDS, TOPICS } from '@/lib/template';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -24,9 +24,15 @@ Reply with only one JSON object, no prose, in this shape:
      "cladding": array of "brick"|"stone"|"stucco"|"siding", "roof": "asphalt"|"metal"|"other",
      "heating": "gas_forced"|"heat_pump"|"electric"|"boiler", "gas": boolean, "hrv": boolean,
      "fireplace": "none"|"gas"|"wood", "servicing": "municipal"|"septic_well", "bathrooms": integer},
-  "notes": up to 15 objects {"topic": one value from the topics list, "text": a specific requirement from the sheet condensed to under 140 characters (sizes, materials, spacing, ratings, elevations, schedules), "where": detail or section reference, "" if none},
+  "notes": up to 15 objects {"topic": one value from the topics list, "text": a specific requirement from the sheet condensed to under 140 characters (sizes, materials, spacing, ratings, elevations, schedules), "where": detail or section reference, "" if none, "box": location of that information},
+  "regions": up to 12 objects, one per distinct drawing view on the sheet (floor plan, elevation, wall or building section, detail, schedule, legend, general notes block):
+    {"topic": the one value from the topics list it is most useful for, "label": short name as titled on the sheet (e.g. "Typical wall section 2/A5", "Window schedule"), "box": its outline},
+  "rooms": for floor plan sheets only, up to 40 objects, one per labelled room or space:
+    {"name": room label as written (e.g. "Ensuite", "Bedroom 2", "Mud room"), "level": the floor it is on as titled (e.g. "Basement", "Ground floor", "Second floor"),
+     "kind": one of ${JSON.stringify(ROOM_KINDS)}, "box": the room's outline}; [] for other sheets,
   "questions": up to 5 short strings naming information that is unclear, conflicting, illegible or missing that a site supervisor should raise with the designer
 }
+Every "box" is [x0, y0, x1, y1] in Image 1 (the whole sheet) as fractions from 0 to 1, origin at the top-left, x to the right and y down. Make it tight around the item.
 Only report what is on the sheet. Do not judge Building Code compliance.`;
 
 type Json = Record<string, unknown>;
@@ -39,6 +45,15 @@ function pickJson(text: string): Json {
 }
 
 const oneOf = <T extends string>(v: unknown, opts: readonly T[]) => (typeof v === 'string' && (opts as readonly string[]).includes(v) ? (v as T) : undefined);
+
+/** A valid [x0, y0, x1, y1] box within the sheet, or undefined. */
+function cleanBox(v: unknown): [number, number, number, number] | undefined {
+  if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) return undefined;
+  const [a, b, c, d] = (v as number[]).map((n) => Math.min(1, Math.max(0, n)));
+  const box: [number, number, number, number] = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+  return box[2] - box[0] >= 0.01 && box[3] - box[1] >= 0.01 ? box.map((n) => Math.round(n * 1000) / 1000) as typeof box : undefined;
+}
+const isTopic = (v: unknown) => (TOPICS as readonly string[]).includes(String(v));
 
 function cleanFeatures(raw: unknown): Json {
   const x = (raw && typeof raw === 'object' ? raw : {}) as Json;
@@ -70,7 +85,7 @@ export async function POST(req: Request) {
   const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return NextResponse.json({ error: 'Sign in again to analyze drawings.' }, { status: 401 });
 
-  let body: { sheetId?: string; images?: string[]; text?: string };
+  let body: { sheetId?: string; images?: string[]; text?: string; locationsOnly?: boolean };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Bad request.' }, { status: 400 }); }
   const images = (body.images || []).filter((s) => typeof s === 'string' && s.length > 100).slice(0, 5);
   if (!body.sheetId || !images.length) return NextResponse.json({ error: 'Missing sheet or images.' }, { status: 400 });
@@ -91,7 +106,7 @@ export async function POST(req: Request) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 4096, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 10000, messages: [{ role: 'user', content }] }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -112,11 +127,24 @@ export async function POST(req: Request) {
     const o = (n || {}) as Json;
     const topic = String(o.topic || '');
     const t = String(o.text || '').slice(0, 200).trim();
-    return t && (TOPICS as readonly string[]).includes(topic) ? [{ topic, text: t, where: String(o.where || '').slice(0, 80), keep: true }] : [];
+    const box = cleanBox(o.box);
+    return t && isTopic(topic) ? [{ topic, text: t, where: String(o.where || '').slice(0, 80), keep: true, ...(box ? { box } : {}) }] : [];
   }) : [];
   const questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0, 5).map((q) => String(q).slice(0, 240)).filter(Boolean) : [];
+  const regions = Array.isArray(parsed.regions) ? parsed.regions.slice(0, 12).flatMap((r) => {
+    const o = (r || {}) as Json;
+    const box = cleanBox(o.box);
+    const label = String(o.label || '').slice(0, 80).trim();
+    return box && label && isTopic(o.topic) ? [{ topic: String(o.topic), label, box }] : [];
+  }) : [];
+  const rooms = Array.isArray(parsed.rooms) ? parsed.rooms.slice(0, 40).flatMap((r) => {
+    const o = (r || {}) as Json;
+    const name = String(o.name || '').slice(0, 60).trim();
+    const box = cleanBox(o.box);
+    return name ? [{ name, level: String(o.level || '').slice(0, 40).trim(), kind: oneOf(o.kind, ROOM_KINDS) || 'other', ...(box ? { box } : {}) }] : [];
+  }) : [];
 
-  const update = {
+  const full = {
     number: String(parsed.sheet_number || '').slice(0, 40),
     title: String(parsed.title || '').slice(0, 160),
     discipline: oneOf(parsed.discipline, DISCIPLINES) || 'Other',
@@ -124,10 +152,14 @@ export async function POST(req: Request) {
     topics: [...new Set(topics)],
     notes,
     questions,
+    regions,
+    rooms,
     features: cleanFeatures(parsed.features),
     status: 'analyzed',
     analyzed_at: new Date().toISOString(),
   };
+  // A locations-only re-read keeps the sheet details a person already confirmed.
+  const update = body.locationsOnly ? { notes, regions, rooms, analyzed_at: full.analyzed_at } : full;
   const { data: saved, error: upErr } = await db.from('sheets').update(update).eq('id', sheet.id).select('*').single();
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
   return NextResponse.json({ sheet: saved });

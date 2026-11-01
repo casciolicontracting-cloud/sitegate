@@ -1,4 +1,4 @@
-import type { Features, Topic } from './template';
+import type { Box, Features, RoomKind, Topic } from './template';
 
 export type Stage = 'drawings' | 'review' | 'active';
 
@@ -21,6 +21,22 @@ export interface SheetNote {
   text: string;
   where?: string;
   keep?: boolean;
+  box?: Box;
+}
+
+/** A room Claude found on a floor plan sheet. */
+export interface SheetRoom {
+  name: string;
+  level: string;
+  kind: RoomKind;
+  box?: Box;
+}
+
+/** A drawing view on a sheet (plan, section, detail, schedule) and the topic it covers. */
+export interface SheetRegion {
+  topic: Topic | string;
+  label: string;
+  box: Box;
 }
 
 export interface Sheet {
@@ -38,6 +54,8 @@ export interface Sheet {
   notes: SheetNote[];
   questions: string[];
   features: Partial<Features>;
+  rooms: SheetRoom[];
+  regions: SheetRegion[];
   text_layer: string | null;
   status: 'new' | 'analyzing' | 'analyzed' | 'failed' | 'manual';
   analyzed_at: string | null;

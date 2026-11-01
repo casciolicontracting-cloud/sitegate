@@ -19,6 +19,8 @@ export interface ProjectStore {
   setSheetLocal: (s: Sheet) => void;
   deleteSheet: (id: string) => Promise<void>;
   saveTask: (key: string, patch: Partial<TaskState>) => Promise<void>;
+  /** Tick every remaining check and verify, in one step. */
+  completeTask: (key: string) => Promise<void>;
   saveInsp: (key: string, patch: Partial<Inspection>) => Promise<void>;
   addNote: (n: Partial<Note>) => Promise<void>;
   updateNote: (id: string, patch: Partial<Note>) => Promise<void>;
@@ -46,7 +48,7 @@ export function useProject(projectId: string): ProjectStore {
     try {
       const { data: auth } = await db.auth.getUser();
       setUserId(auth.user?.id || null);
-      const [p, sh, ts, ins, co, no, de, mem] = await Promise.all([
+      const [p, sh, ts, ins, co, no, de, prof] = await Promise.all([
         db.from('projects').select('*').eq('id', projectId).single(),
         db.from('sheets').select('*').eq('project_id', projectId).order('sort'),
         db.from('task_states').select('*').eq('project_id', projectId),
@@ -54,11 +56,10 @@ export function useProject(projectId: string): ProjectStore {
         db.from('contacts').select('*').eq('project_id', projectId).order('trade'),
         db.from('notes').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
         db.from('deficiencies').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
-        db.from('project_members').select('user_id').eq('project_id', projectId),
+        // Team members can see every profile; row-level security limits this to people they work with.
+        db.from('profiles').select('id, full_name, company'),
       ]);
       fail(p.error);
-      const ids = (mem.data || []).map((m) => m.user_id as string);
-      const prof = ids.length ? await db.from('profiles').select('id, full_name, company').in('id', ids) : { data: [] as Profile[] };
       setData({
         project: p.data as Project,
         sheets: (sh.data || []) as Sheet[],
@@ -136,6 +137,20 @@ export function useProject(projectId: string): ProjectStore {
       patch((d) => ({ ...d, tasks: { ...d.tasks, [key]: next } }));
       const { error } = await supabase().from('task_states').upsert(next);
       fail(error);
+    },
+
+    async completeTask(key) {
+      if (!plan || !engine) return;
+      const t = plan.tasks[key];
+      const issues = engine.completeIssues(t);
+      if (issues.length) throw new Error(issues.join('. '));
+      const now = new Date().toISOString();
+      const checks = { ...(dataRef.current?.tasks[key]?.checks || {}), ...Object.fromEntries(t.checks.map((c) => [c.id, true])) };
+      const sheetRevs = Object.fromEntries(engine.linkedSheets(t).map((s) => [s.id, s.revision || '']));
+      await store.saveTask(key, {
+        checks, started_at: dataRef.current?.tasks[key]?.started_at || now, verified_at: now, verified_by: userId, sheet_revs: sheetRevs,
+      });
+      log('task_verified', { task: key });
     },
 
     async saveInsp(key, p) {

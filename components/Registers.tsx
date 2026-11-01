@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { aiEnabled, analyzeSheet } from '@/lib/analyze';
 import { renderFile } from '@/lib/pdf';
 import { newId, uploadFile } from '@/lib/supabase';
-import { TOPICS, TOPIC_LABEL, TRADES } from '@/lib/template';
+import { collectRooms } from '@/lib/status';
+import { normalizeFeatures, roomLabel, TOPICS, TOPIC_LABEL, TRADES, type Room } from '@/lib/template';
+import { finalizeRooms, RoomsEditor } from './Rooms';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Contact, Deficiency, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
@@ -15,8 +18,34 @@ export function DrawingsView({ store, nav }: { store: ProjectStore; nav: Nav }) 
   const [view, setView] = useState<Sheet | null>(null);
   const [edit, setEdit] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<Room[] | null>(null); // local edits, null when not editing
+  const [aiOn, setAiOn] = useState(false);
+  useEffect(() => { aiEnabled().then(setAiOn); }, []);
   if (!data || !plan || !engine) return null;
+
+  async function findLocations() {
+    const list = data!.sheets;
+    let failed = 0;
+    for (let i = 0; i < list.length; i++) {
+      setBusy(`Claude is reading sheet ${i + 1} of ${list.length}…`);
+      try { store.setSheetLocal(await analyzeSheet(list[i], undefined, true)); } catch { failed++; }
+    }
+    setBusy(null);
+    toast(failed ? `${failed} sheet${failed === 1 ? '' : 's'} could not be read. Try again later.` : 'Rooms and drawing views found. Check the rooms below, then save them.', failed > 0);
+  }
   const sheets = data.sheets;
+  const saved = normalizeFeatures(data.project.features).rooms;
+
+  async function saveRooms() {
+    const final = finalizeRooms(rooms || []);
+    const baths = final.filter((r) => r.kind === 'bathroom').length;
+    try {
+      await store.updateProject({ features: { ...data!.project.features, rooms: final, ...(baths ? { bathrooms: baths } : {}) } });
+      store.log('rooms_updated', { rooms: final.length });
+      toast(`Saved ${final.length} room${final.length === 1 ? '' : 's'}. The plan now has a section for each.`);
+      setRooms(null);
+    } catch (e) { toastError(e); }
+  }
   const save = (s: Sheet, p: Partial<Sheet>) => store.upsertSheet({ ...s, ...p }).catch(toastError);
 
   async function addSheets(files: FileList) {
@@ -50,11 +79,39 @@ export function DrawingsView({ store, nav }: { store: ProjectStore; nav: Nav }) 
     <div className="stack-lg">
       <div className="section-head">
         <div className="stack" style={{ gap: 4 }}><h1>Drawings</h1><span className="muted small num">{sheets.length} sheets · topics link sheets to tasks</span></div>
+        <div className="row">
+        {aiOn && sheets.length > 0 && (
+          <button className="btn" disabled={!!busy} onClick={findLocations}>Find rooms and views with Claude</button>
+        )}
         <label className="btn">
           {busy || 'Add sheets'}
           <input id="add-sheets" type="file" accept="application/pdf,image/*" multiple hidden disabled={!!busy} onChange={(e) => { if (e.target.files) addSheets(e.target.files); e.target.value = ''; }} />
         </label>
+        </div>
       </div>
+      <section className="panel-box stack">
+        <div className="section-head" style={{ margin: 0 }}>
+          <h2>Rooms <span className="muted small num">· {saved.length}</span></h2>
+          {rooms === null && (
+            <button className="btn btn-sm" onClick={() => setRooms(saved.length ? saved : collectRooms(sheets))}>{saved.length ? 'Edit rooms' : 'Set up rooms'}</button>
+          )}
+        </div>
+        {rooms === null ? (
+          <p className="small muted">
+            {saved.length ? saved.map(roomLabel).join(' · ') : 'No rooms yet. Rooms add a section per room to the HVAC, plumbing, electrical, drywall, flooring, trim and paint checklists.'}
+          </p>
+        ) : (
+          <>
+            <p className="small muted">Pre-filled from the floor plans where Claude labelled rooms. Renaming a room starts its checklist section over.</p>
+            <RoomsEditor rooms={rooms} sheets={sheets} onChange={setRooms} />
+            <div className="row">
+              <button className="btn btn-primary" onClick={saveRooms}>Save rooms</button>
+              {saved.length > 0 && <button className="btn" onClick={() => setRooms(collectRooms(sheets))}>Reload from drawings</button>}
+              <button className="btn btn-ghost" onClick={() => setRooms(null)}>Cancel</button>
+            </div>
+          </>
+        )}
+      </section>
       <div className="sheets">
         {sheets.map((s) => {
           const tasks = Object.values(plan.tasks).filter((t) => s.topics.some((x) => t.topics.includes(x as never)));

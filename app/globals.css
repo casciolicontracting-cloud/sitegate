@@ -227,3 +227,25 @@ button.chip { cursor: pointer; }
   .node h3 { font-size: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Cropped drawing views on tasks and rooms */
+.crops { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.crop { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.crop-frame { position: relative; display: block; width: 100%; max-height: 220px; overflow: hidden; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--line)); background: #fff; }
+.crop-frame img { position: absolute; max-width: none; }
+.crop-label { color: var(--blue); }
+.crop.small-crop .crop-frame { max-height: 120px; }
+
+/* Room sub-sections in a checklist */
+.room-group { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; }
+.room-group-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.room-group-head h4 { margin: 0; font-size: 0.95rem; }
+.room-thumb { width: 96px; flex: none; }
+
+/* Plan sequence: quick complete next to a task card */
+.step-row { display: flex; gap: 8px; align-items: stretch; }
+.step-row .step-card { flex: 1; }
+.step-row .btn-done { flex: none; align-self: center; }
+.room-list { display: flex; flex-direction: column; gap: 6px; }
+.room-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; align-items: center; }
+@media (max-width: 600px) { .room-row { grid-template-columns: 1fr 1fr; } }

@@ -1,7 +1,7 @@
 // Stage-gate logic. Pure functions of the plan + project data, so the same
 // rules can later run on the server (e.g. to block an API write) unchanged.
 
-import type { Plan, PlanPhase, PlanTask, PlanInsp, Features } from './template';
+import { roomId, type Box, type Plan, type PlanPhase, type PlanTask, type PlanInsp, type Features, type Room } from './template';
 import type { ProjectBundle, Sheet, InspStatus } from './types';
 
 export type TaskStatus = 'locked' | 'ready' | 'active' | 'review' | 'verified';
@@ -68,35 +68,47 @@ export class Engine {
     return out;
   }
 
-  checksDone(t: PlanTask): number {
+  /** Checks ticked, optionally within one room group. */
+  checksDone(t: PlanTask, group?: string): number {
     const c = this.data.tasks[t.key]?.checks || {};
-    return t.checks.filter((_, i) => c[String(i)]).length;
-  }
-
-  photoOk(t: PlanTask): boolean {
-    return !t.photo || (this.data.tasks[t.key]?.photos?.length || 0) > 0;
+    return t.checks.filter((x) => (group === undefined || x.group === group) && c[x.id]).length;
   }
 
   taskStatus(t: PlanTask): TaskStatus {
     if (this.isVerified(t.key)) return 'verified';
     if (this.taskBlockers(t).length) return 'locked';
     const done = this.checksDone(t);
-    if (done === t.checks.length && this.photoOk(t)) return 'review';
+    if (done === t.checks.length) return 'review';
     if (done > 0 || this.data.tasks[t.key]?.started_at || (this.data.tasks[t.key]?.photos?.length || 0) > 0) return 'active';
     return 'ready';
   }
 
-  /** Why the Verify button is disabled, if it is. */
-  verifyIssues(t: PlanTask): string[] {
+  /**
+   * Why a task can't be completed yet, if it can't. Completing ticks any remaining
+   * checks, so only hold points (earlier steps, inspections) and open deficiencies block it.
+   */
+  completeIssues(t: PlanTask): string[] {
     const out: string[] = [];
     const b = this.taskBlockers(t);
     if (b.length) out.push(`Waiting on ${b.map((x) => x.label).join(', ')}`);
-    const done = this.checksDone(t);
-    if (done < t.checks.length) out.push(`${t.checks.length - done} checklist item${t.checks.length - done === 1 ? '' : 's'} left`);
-    if (!this.photoOk(t)) out.push('Photo evidence required');
     const defs = this.openDefsFor(t.phase, t.key);
-    if (defs.length) out.push(`${defs.length} open deficienc${defs.length === 1 ? 'y' : 'ies'}`);
+    if (defs.length) out.push(`${defs.length} open deficienc${defs.length === 1 ? 'y' : 'ies'} on this task`);
     return out;
+  }
+
+  canComplete(t: PlanTask): boolean {
+    return !this.isVerified(t.key) && this.completeIssues(t).length === 0;
+  }
+
+  /** Drawing views on linked sheets that cover this task's topics, for cropped previews. */
+  drawingViews(t: { topics: readonly string[] }): Array<{ sheet: Sheet; label: string; box: Box }> {
+    return this.data.sheets.flatMap((s) => (s.regions || [])
+      .filter((r) => t.topics.includes(r.topic as never))
+      .map((r) => ({ sheet: s, label: r.label, box: r.box })));
+  }
+
+  sheetById(id: string | undefined): Sheet | undefined {
+    return id ? this.data.sheets.find((s) => s.id === id) : undefined;
   }
 
   inspReady(i: PlanInsp): boolean {
@@ -164,5 +176,23 @@ export function aggregateFeatures(sheets: Sheet[], base: Features): Features {
   }
   if (anyCladding) f.cladding = [...cladding];
   if (!seen.gas && seen.heating) f.gas = f.heating === 'gas_forced' || f.heating === 'boiler' || f.fireplace === 'gas';
+  if (!f.rooms.length) f.rooms = collectRooms(sheets);
+  const baths = f.rooms.filter((r) => r.kind === 'bathroom').length;
+  if (baths) f.bathrooms = baths;
   return f;
+}
+
+/** Rooms read from all sheets, one per name + level (the first sheet that shows it keeps the location). */
+export function collectRooms(sheets: Sheet[]): Room[] {
+  const out = new Map<string, Room>();
+  for (const s of sheets) {
+    for (const r of s.rooms || []) {
+      const name = (r.name || '').trim();
+      if (!name) continue;
+      const level = (r.level || '').trim();
+      const id = roomId(name, level);
+      if (!out.has(id)) out.set(id, { id, name, level, kind: r.kind || 'other', sheet: s.id, box: r.box });
+    }
+  }
+  return [...out.values()];
 }
