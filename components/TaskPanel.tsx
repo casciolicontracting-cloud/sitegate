@@ -1,0 +1,316 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { codeRef, OBC_EDITION } from '@/lib/codes';
+import { TOPIC_LABEL, type Topic } from '@/lib/template';
+import { newId, uploadFile } from '@/lib/supabase';
+import type { ProjectStore } from '@/lib/useProject';
+import type { InspStatus, Sheet } from '@/lib/types';
+import type { Nav } from './ProjectApp';
+import { fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
+
+function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = ''; };
+  }, [onClose]);
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={title}>
+        <div className="drawer-head">
+          <div className="grow stack" style={{ gap: 4 }}>
+            <span className="label">{sub}</span>
+            <h2>{title}</h2>
+            <div>{pill}</div>
+          </div>
+          <button className="btn btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <div className="drawer-body">{children}</div>
+      </aside>
+    </>
+  );
+}
+
+function CodeList({ codes }: { codes: string[] }) {
+  if (!codes.length) return <p className="small muted">No code reference for this item. Follow the drawings and manufacturer instructions.</p>;
+  return (
+    <>
+      {codes.map((c) => {
+        const r = codeRef(c);
+        if (!r) return null;
+        return (
+          <div className="ref" key={c}>
+            <span className="k">{r.label}</span>
+            <strong>{r.title}</strong>
+            <span className="small">{r.covers}</span>
+            {r.url && <a className="small" href={r.url} target="_blank" rel="noreferrer">Open source</a>}
+          </div>
+        );
+      })}
+      <p className="small muted">References point to where a requirement lives in the {OBC_EDITION} and related regulations. Confirm the exact requirement in the current text; approved drawings and manufacturer instructions may be stricter.</p>
+    </>
+  );
+}
+
+export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStore; nav: Nav; taskKey: string; onClose: () => void }) {
+  const { data, plan, engine, userId } = store;
+  const [viewSheet, setViewSheet] = useState<Sheet | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteKind, setNoteKind] = useState<'note' | 'question'>('note');
+  const [defTitle, setDefTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!data || !plan || !engine) return null;
+  const t = plan.tasks[taskKey];
+  const st = data.tasks[taskKey];
+  const status = engine.taskStatus(t);
+  const locked = status === 'locked';
+  const blockers = engine.taskBlockers(t);
+  const sheets = engine.linkedSheets(t);
+  const dwgNotes = engine.drawingNotes(t);
+  const issues = engine.verifyIssues(t);
+  const revised = engine.revisedSince(t);
+  const notes = data.notes.filter((n) => n.task_key === taskKey);
+  const defs = data.defs.filter((d) => d.task_key === taskKey);
+  const contacts = data.contacts.filter((c) => c.trade === t.trade);
+  const checks = st?.checks || {};
+  const who = (id: string | null) => (id && data.profiles[id]?.full_name) || 'a team member';
+
+  const toggle = (i: number) => {
+    if (locked || st?.verified_at) return;
+    const next = { ...checks, [String(i)]: !checks[String(i)] };
+    store.saveTask(taskKey, { checks: next, started_at: st?.started_at || new Date().toISOString() }).catch(toastError);
+  };
+
+  async function addPhoto(file: File) {
+    setBusy(true);
+    try {
+      const path = await uploadFile(`${data!.project.id}/photos/${taskKey}/${newId()}.jpg`, file);
+      await store.saveTask(taskKey, { photos: [...(st?.photos || []), path], started_at: st?.started_at || new Date().toISOString() });
+      toast('Photo added.');
+    } catch (e) { toastError(e); } finally { setBusy(false); }
+  }
+
+  async function verify() {
+    const revs = Object.fromEntries(sheets.map((s) => [s.id, s.revision || '']));
+    await store.saveTask(taskKey, { verified_at: new Date().toISOString(), verified_by: userId, sheet_revs: revs });
+    store.log('task_verified', { task: taskKey });
+    toast(`${t.name} verified.`);
+  }
+
+  async function reopen() {
+    await store.saveTask(taskKey, { verified_at: null, verified_by: null });
+    store.log('task_reopened', { task: taskKey });
+  }
+
+  async function addNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    await store.addNote({ task_key: taskKey, phase_key: t.phase, trade: t.trade, kind: noteKind, body: noteText.trim() }).catch(toastError);
+    setNoteText('');
+  }
+
+  async function addDef(e: React.FormEvent) {
+    e.preventDefault();
+    if (!defTitle.trim()) return;
+    await store.addDef({ task_key: taskKey, phase_key: t.phase, trade: t.trade, title: defTitle.trim(), status: 'open' }).catch(toastError);
+    setDefTitle('');
+  }
+
+  return (
+    <Drawer title={t.name} sub={`${plan.byPhase[t.phase].name} · ${t.trade}`} pill={<TaskPill s={status} />} onClose={onClose}>
+      {blockers.length > 0 && (
+        <div className="notice warn">
+          <strong>Not ready to start.</strong> Waiting on:
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {blockers.map((b) => (
+              <li key={b.key}>
+                {b.kind === 'task' ? <button className="btn-link" onClick={() => nav.openTask(b.key)}>{b.label}</button>
+                  : b.kind === 'insp' ? <button className="btn-link" onClick={() => nav.openInsp(b.key)}>{b.label}</button>
+                  : b.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {revised.length > 0 && (
+        <div className="notice bad">
+          Verified against an older revision of {revised.map((s) => `${s.number || 'a sheet'} (now rev ${s.revision || '—'})`).join(', ')}. Recheck the work and reopen if it no longer matches.
+        </div>
+      )}
+
+      <section>
+        <div className="section-head" style={{ margin: 0 }}><h3>Drawings</h3><span className="small muted">Linked by topic</span></div>
+        {sheets.length === 0 ? <p className="small muted">No sheets are tagged for {t.topics.map((x) => TOPIC_LABEL[x as Topic]).join(', ')}. Tag sheets on the Drawings tab.</p> : (
+          <div className="row">
+            {sheets.map((s) => (
+              <button key={s.id} className="sheet-chip" onClick={() => setViewSheet(s)}>{s.number || 'Sheet'}{s.revision ? ` · Rev ${s.revision}` : ''}</button>
+            ))}
+          </div>
+        )}
+        {dwgNotes.length > 0 && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="label">From the drawings</span>
+            {dwgNotes.map((n, i) => (
+              <div key={i} className="from-dwg">
+                {n.text}{' '}
+                <button className="btn-link mono" onClick={() => setViewSheet(n.sheet)}>{n.sheet.number || 'sheet'}{n.where ? ` · ${n.where}` : ''}</button>
+              </div>
+            ))}
+            <span className="small muted">Read from the sheets by Claude. Confirm against the drawing before building to it.</span>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="section-head" style={{ margin: 0 }}><h3>Checklist</h3><span className="small muted num">{engine.checksDone(t)}/{t.checks.length}</span></div>
+        <div className="checks">
+          {t.checks.map((c, i) => (
+            <label key={i} className={`check ${checks[String(i)] ? 'done' : ''}`}>
+              <input type="checkbox" checked={!!checks[String(i)]} disabled={locked || !!st?.verified_at} onChange={() => toggle(i)} />
+              <span>{c}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <div className="section-head" style={{ margin: 0 }}><h3>Photos</h3>{t.photo && <span className={`pill ${engine.photoOk(t) ? 'ok' : 'warn'}`}>{engine.photoOk(t) ? 'Evidence added' : 'Required'}</span>}</div>
+        {(st?.photos || []).length > 0 && (
+          <div className="photos">{st!.photos.map((p) => <StoredImage key={p} path={p} alt="Site photo" />)}</div>
+        )}
+        <label className="btn" style={{ alignSelf: 'flex-start' }} aria-disabled={busy || locked}>
+          {busy ? 'Uploading…' : 'Add photo'}
+          <input id={`photo-${taskKey}`} type="file" accept="image/*" capture="environment" hidden disabled={busy || locked}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) addPhoto(f); e.target.value = ''; }} />
+        </label>
+      </section>
+
+      <section>
+        <h3>Code and standards</h3>
+        <CodeList codes={t.codes} />
+      </section>
+
+      <section>
+        <h3>Responsible trade</h3>
+        {contacts.length === 0 ? <p className="small muted">No {t.trade.toLowerCase()} contact yet. <button className="btn-link" onClick={() => nav.go('contacts')}>Add one</button></p> : (
+          <select id={`assign-${taskKey}`} value={st?.assignee_contact || ''} onChange={(e) => store.saveTask(taskKey, { assignee_contact: e.target.value || null }).catch(toastError)}>
+            <option value="">Not assigned</option>
+            {contacts.map((c) => <option key={c.id} value={c.id}>{[c.company, c.person].filter(Boolean).join(' – ')}</option>)}
+          </select>
+        )}
+      </section>
+
+      <section>
+        <h3>Deficiencies</h3>
+        {defs.map((d) => (
+          <div key={d.id} className="row between ref" style={{ flexDirection: 'row' }}>
+            <span className="grow">{d.title}</span>
+            <span className={`pill ${d.status === 'closed' ? 'ok' : d.status === 'fixed' ? 'warn' : 'bad'}`}>{d.status === 'open' ? 'Open' : d.status === 'fixed' ? 'Fixed, to verify' : 'Closed'}</span>
+          </div>
+        ))}
+        <form className="row" onSubmit={addDef}>
+          <input id={`def-${taskKey}`} type="text" className="grow" style={{ flex: 1, minWidth: 180 }} placeholder="Describe a deficiency" value={defTitle} onChange={(e) => setDefTitle(e.target.value)} />
+          <button className="btn">Log deficiency</button>
+        </form>
+      </section>
+
+      <section>
+        <h3>Trade notes</h3>
+        {notes.map((n) => (
+          <div key={n.id} className="ref">
+            <span className="small muted">{n.kind === 'question' ? 'Question' : 'Note'} · {who(n.created_by)} · {fmtDate(n.created_at)}</span>
+            <span>{n.body}</span>
+            {n.answer && <span className="small"><strong>Answer:</strong> {n.answer}</span>}
+          </div>
+        ))}
+        <form className="stack" onSubmit={addNote}>
+          <textarea id={`note-${taskKey}`} placeholder={`Note for ${t.trade.toLowerCase()}, or a question for the designer`} value={noteText} onChange={(e) => setNoteText(e.target.value)} />
+          <div className="row">
+            <div className="toggles">
+              <button type="button" aria-pressed={noteKind === 'note'} onClick={() => setNoteKind('note')}>Note</button>
+              <button type="button" aria-pressed={noteKind === 'question'} onClick={() => setNoteKind('question')}>Question / RFI</button>
+            </div>
+            <button className="btn">Add</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="panel-box">
+        <h3>Sign-off</h3>
+        {st?.verified_at ? (
+          <>
+            <p>Verified by {who(st.verified_by)} on {fmtDate(st.verified_at)}.</p>
+            <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => reopen().catch(toastError)}>Reopen task</button>
+          </>
+        ) : (
+          <>
+            {issues.length > 0 && <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{issues.map((x) => <li key={x}>{x}</li>)}</ul>}
+            <button className="btn btn-ok" style={{ alignSelf: 'flex-start' }} disabled={issues.length > 0} onClick={() => verify().catch(toastError)}>Verify and release</button>
+            <p className="small muted">Verifying records you, the date and the drawing revisions this work was checked against.</p>
+          </>
+        )}
+      </section>
+
+      {viewSheet && <SheetViewer path={viewSheet.image_path} title={`${viewSheet.number} ${viewSheet.title}`} onClose={() => setViewSheet(null)} />}
+    </Drawer>
+  );
+}
+
+export function InspPanel({ store, nav, inspKey, onClose }: { store: ProjectStore; nav: Nav; inspKey: string; onClose: () => void }) {
+  const { data, plan, engine } = store;
+  const [notes, setNotes] = useState(data?.insps[inspKey]?.notes || '');
+  if (!data || !plan || !engine) return null;
+  const i = plan.insps[inspKey];
+  const rec = data.insps[inspKey];
+  const s = engine.inspStatus(inspKey);
+  const ready = engine.inspReady(i);
+  const inspectors = data.contacts.filter((c) => /inspector/i.test(c.trade));
+
+  async function set(status: InspStatus, extra: Record<string, unknown> = {}) {
+    await store.saveInsp(inspKey, { status, notes: notes || null, ...extra });
+    store.log('inspection_' + status, { inspection: inspKey });
+    if (status === 'failed') {
+      await store.addDef({ title: `Failed inspection: ${i.name}${notes ? ` — ${notes}` : ''}`, phase_key: i.phase, task_key: i.after[0] || null, trade: plan!.tasks[i.after[0]]?.trade || null, status: 'open' });
+      toast('Logged as a deficiency. Fix, then request a re-inspection.');
+    }
+  }
+
+  return (
+    <Drawer title={i.name} sub={`${plan.byPhase[i.phase].name} · ${i.authority} inspection`} pill={<InspPill s={s} />} onClose={onClose}>
+      {!ready && s === 'pending' && (
+        <div className="notice warn">Verify these first: {i.after.map((a) => (
+          <button key={a} className="btn-link" onClick={() => nav.openTask(a)} style={{ marginRight: 8 }}>{plan.tasks[a]?.name}</button>
+        ))}</div>
+      )}
+      <section>
+        <h3>How to book</h3>
+        <p>{i.howTo}</p>
+        {data.project.permit_no && <p className="small">Permit no. <span className="mono">{data.project.permit_no}</span>{data.project.municipality ? ` · ${data.project.municipality}` : ''}</p>}
+        {inspectors.length > 0 && <div className="small">{inspectors.map((c) => <div key={c.id}>{c.trade}: {[c.person, c.company, c.phone, c.email].filter(Boolean).join(' · ')}</div>)}</div>}
+      </section>
+      <section>
+        <h3>Record</h3>
+        <div className="form-grid">
+          <label className="field"><span>Requested on</span><input id="i-req" type="date" value={rec?.requested_on || ''} onChange={(e) => store.saveInsp(inspKey, { requested_on: e.target.value || null, status: s === 'pending' ? 'requested' : s }).catch(toastError)} /></label>
+          <label className="field"><span>Scheduled for</span><input id="i-sch" type="date" value={rec?.scheduled_on || ''} onChange={(e) => store.saveInsp(inspKey, { scheduled_on: e.target.value || null, status: ['pending', 'requested'].includes(s) ? 'scheduled' : s }).catch(toastError)} /></label>
+          <label className="field"><span>Inspector</span><input id="i-who" type="text" defaultValue={rec?.inspector || ''} onBlur={(e) => e.target.value !== (rec?.inspector || '') && store.saveInsp(inspKey, { inspector: e.target.value || null }).catch(toastError)} /></label>
+        </div>
+        <label className="field"><span>Result notes / reason not required</span><textarea id="i-notes" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+        <div className="row">
+          {s === 'pending' && <button className="btn btn-primary" onClick={() => set('requested', { requested_on: today() }).catch(toastError)}>Mark requested today</button>}
+          <button className="btn btn-ok" onClick={() => set('passed').catch(toastError)}>Passed</button>
+          <button className="btn" onClick={() => set('failed').catch(toastError)}>Failed</button>
+          <button className="btn btn-ghost" onClick={() => { if (!notes.trim()) return toast('Add a reason it isn’t required.', true); set('na').catch(toastError); }}>Not required</button>
+          {s !== 'pending' && <button className="btn btn-ghost" onClick={() => set('pending').catch(toastError)}>Reset</button>}
+        </div>
+      </section>
+      <section>
+        <h3>Code and standards</h3>
+        <CodeList codes={i.codes} />
+      </section>
+    </Drawer>
+  );
+}

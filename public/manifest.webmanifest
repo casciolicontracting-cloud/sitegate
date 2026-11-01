@@ -1,0 +1,12 @@
+{
+  "name": "SiteGate",
+  "short_name": "SiteGate",
+  "description": "Stage-gated construction checklists for Ontario custom homes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f1ed",
+  "theme_color": "#1b2430",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "sitegate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Construction execution app for Ontario custom homes: drawings, stage gates, checklists, OBC references, inspections and deficiencies.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "next": "15.5.4",
+    "pdfjs-dist": "4.10.38",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
