@@ -16,9 +16,9 @@
   --bad: #b42318;
   --lock: #8a8f97;
   --shadow: 0 1px 2px rgb(27 36 48 / 0.06), 0 8px 24px rgb(27 36 48 / 0.08);
-  --font-d: var(--font-display), 'Arial Narrow', sans-serif;
-  --font-b: var(--font-body), system-ui, -apple-system, sans-serif;
-  --font-m: var(--font-mono), ui-monospace, Menlo, monospace;
+  --font-d: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-b: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-m: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
   --r: 10px;
   color-scheme: light;
 }

@@ -5,7 +5,7 @@ import { codeRef, OBC_EDITION } from '@/lib/codes';
 import { TOPIC_LABEL, type Topic } from '@/lib/template';
 import { newId, uploadFile } from '@/lib/supabase';
 import type { ProjectStore } from '@/lib/useProject';
-import type { InspStatus, Sheet } from '@/lib/types';
+import type { Inspection, InspStatus, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
 import { fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
 
@@ -269,7 +269,7 @@ export function InspPanel({ store, nav, inspKey, onClose }: { store: ProjectStor
   const ready = engine.inspReady(i);
   const inspectors = data.contacts.filter((c) => /inspector/i.test(c.trade));
 
-  async function set(status: InspStatus, extra: Record<string, unknown> = {}) {
+  async function set(status: InspStatus, extra: Partial<Inspection> = {}) {
     await store.saveInsp(inspKey, { status, notes: notes || null, ...extra });
     store.log('inspection_' + status, { inspection: inspKey });
     if (status === 'failed') {
