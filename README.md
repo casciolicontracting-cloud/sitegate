@@ -15,9 +15,8 @@ checklists, Ontario Building Code references, inspections, deficiencies and trad
 4. **Review** – the supervisor corrects the sheet register, topics and house features. Nothing read by AI is used until confirmed here.
 5. **Plan** – `lib/template.ts` + confirmed features → phases, tasks and inspections (`buildPlan`). Tasks link to sheets by shared topics; specs read from those sheets appear on the task as "From the drawings".
 6. **Execution** – `lib/status.ts` (`Engine`) enforces the stage gates:
-   - A **phase** unlocks when every phase in `requires` has passed its gate.
-   - A **task** is blocked by unverified `after` tasks and uncleared `needs` inspections (hold points).
-   - **Complete task** ticks every remaining check and verifies in one tap; it is blocked only by unfinished earlier steps, required inspections, or an open deficiency on the task. Photos are optional. Verification records who, when, and the revision of every linked sheet.
+   - **Nothing is locked.** Any phase or task can be worked on at any time. Earlier steps (`after`) and inspections (`needs`) show as "usually after" reminders.
+   - **Complete task** ticks every remaining check and verifies in one tap; only an open deficiency on the task stops it. Photos are optional. Verification records who, when, and the revision of every linked sheet.
    - A **gate** passes when all tasks are verified, all inspections are passed or marked not required (with a reason), and no deficiencies are open in the phase.
    - If a linked sheet's revision changes after verification, the task is flagged for recheck.
 

@@ -42,8 +42,8 @@ export function Mark() {
 }
 
 // ---- pills -------------------------------------------------------------
-const TASK_TONE: Record<TaskStatus, string> = { locked: 'lock', ready: 'go', active: 'go', review: 'warn', verified: 'ok' };
-const GATE_TONE: Record<GateStatus, string> = { locked: 'lock', open: 'go', ready: 'warn', passed: 'ok' };
+const TASK_TONE: Record<TaskStatus, string> = { ready: 'go', active: 'go', review: 'warn', verified: 'ok' };
+const GATE_TONE: Record<GateStatus, string> = { open: 'go', ready: 'warn', passed: 'ok' };
 const INSP_TONE: Record<InspStatus, string> = { pending: 'lock', requested: 'go', scheduled: 'blue', passed: 'ok', failed: 'bad', na: 'lock' };
 
 export const TaskPill = ({ s }: { s: TaskStatus }) => <span className={`pill ${TASK_TONE[s]}`}>{TASK_LABEL[s]}</span>;

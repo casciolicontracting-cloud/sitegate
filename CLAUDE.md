@@ -6,9 +6,10 @@ Construction execution app for Ontario custom home builders and site supervisors
 A project starts with the drawing set. Each sheet is read by Claude (number, title, discipline, revision, topics, house features, specs, open questions). The supervisor confirms that, then the app generates a phase-by-phase plan:
 - Phases joined by stage gates. A gate passes when all tasks are verified, all inspections are passed or marked not required (with a reason), and no deficiencies are open.
 - Tasks: checklists (with a sub-section per confirmed room on HVAC, plumbing, electrical, drywall, flooring, trim and paint), cropped drawing views and specs read from drawings, code references, optional photos, trade notes, designer questions (RFIs), deficiencies.
-- "Complete task" ticks every remaining check and verifies in one step. Only unfinished earlier steps, required inspections and open deficiencies on the task block it. Photos are optional.
+- "Complete task" ticks every remaining check and verifies in one step. Only an open deficiency on the task itself stops it. Photos are optional.
+- Nothing is locked (owner decision, 2026-11-01): any phase or task can be done at any time. Template order (`after` tasks, `needs` inspections) is shown as "usually after" reminders only. A gate shows as passed once its own phase is complete.
 - Rooms: Claude labels rooms on floor plans (name, level, kind, box) and drawing views on every sheet (topic, label, box) into `sheets.rooms` / `sheets.regions`. Confirmed rooms live in `projects.features.rooms`; edit them in the review step or on the Drawings tab.
-- Hold-point inspections (municipal, ESA, TSSA, engineer, energy advisor).
+- Inspections (municipal, ESA, TSSA, engineer, energy advisor), recorded per phase; they count toward the gate but never lock work.
 - Verification records who, when, and each linked sheet's revision; a later revision flags the task for recheck.
 
 ## Stack
@@ -20,7 +21,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 
 ## Key files
 - `lib/template.ts` — phases, tasks, checklists, inspections, topics, trades, feature model, `buildPlan()`. The plan is regenerated from template + `projects.features`; progress is stored against stable task keys.
-- `lib/status.ts` — `Engine`: all gate, blocker, verification and revision rules. Keep business rules here as pure functions.
+- `lib/status.ts` — `Engine`: all gate, reminder, verification and revision rules. Keep business rules here as pure functions.
 - `lib/codes.ts` — code reference library.
 - `lib/useProject.ts` — loads and writes project data.
 - `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`.

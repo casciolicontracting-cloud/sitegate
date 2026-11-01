@@ -21,7 +21,11 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
   const openDefs = data.defs.filter((d) => d.status !== 'closed');
   const revised = tasks.flatMap((t) => engine.revisedSince(t).map((s) => ({ t, s })));
   const openQs = data.notes.filter((n) => n.kind === 'question' && !n.answer);
-  const current = plan.phases.filter((p) => ['open', 'ready'].includes(engine.gateStatus(p)));
+  // Nothing is locked, so "active" means work has started, plus the earliest phase not yet passed.
+  const notPassed = plan.phases.filter((p) => engine.gateStatus(p) !== 'passed');
+  const started = (p: (typeof plan.phases)[number]) =>
+    p.tasks.some((t) => engine.taskStatus(t) !== 'ready') || p.insps.some((i) => engine.inspStatus(i.key) !== 'pending');
+  const current = notPassed.filter((p, i) => i === 0 || started(p));
 
   return (
     <div className="stack-lg">
@@ -32,7 +36,7 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
 
       <div className="stats">
         <div className="stat"><span className="label">Complete</span><b>{prog.pct}%</b><Meter pct={prog.pct} /><span className="small muted num">{prog.done} of {prog.total} tasks verified</span></div>
-        <div className="stat"><span className="label">Ready to work</span><b>{actionable.length}</b><span className="small muted">tasks unlocked</span></div>
+        <div className="stat"><span className="label">Ready to work</span><b>{actionable.length}</b><span className="small muted">tasks not yet complete</span></div>
         <div className={`stat ${openDefs.length ? 'alert' : ''}`}><span className="label">Open deficiencies</span><b>{openDefs.length}</b><span className="small muted">must close before gates pass</span></div>
         <div className="stat"><span className="label">Inspections</span><b>{toRequest.length + upcoming.length}</b><span className="small muted">{toRequest.length} to book · {upcoming.length} in progress</span></div>
       </div>
@@ -54,7 +58,7 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
       <section className="stack">
         <div className="section-head"><h2>Active phases</h2><button className="btn-link" onClick={() => nav.go('flow')}>Full plan</button></div>
         <div className="list">
-          {current.length === 0 && <div className="empty">Every unlocked phase has passed its gate.</div>}
+          {current.length === 0 && <div className="empty">Every phase has passed its gate.</div>}
           {current.map((p) => {
             const pp = engine.phaseProgress(p);
             return (
@@ -104,7 +108,7 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
       <section className="stack">
         <h2>Next up</h2>
         <div className="list">
-          {actionable.length === 0 && <div className="empty">Nothing is unlocked right now. Check inspections and deficiencies holding the current gate.</div>}
+          {actionable.length === 0 && <div className="empty">Every task is complete.</div>}
           {actionable.slice(0, 12).map(({ t, s }) => (
             <button key={t.key} className="item" onClick={() => nav.openTask(t.key)}>
               <TaskPill s={s} />

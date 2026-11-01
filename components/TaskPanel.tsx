@@ -67,9 +67,8 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const t = plan.tasks[taskKey];
   const st = data.tasks[taskKey];
   const status = engine.taskStatus(t);
-  const locked = status === 'locked';
   const verified = !!st?.verified_at;
-  const blockers = engine.taskBlockers(t);
+  const before = engine.usuallyAfter(t);
   const sheets = engine.linkedSheets(t);
   const views = engine.drawingViews(t);
   const roomSheet = engine.sheetById(t.room?.sheet);
@@ -85,7 +84,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const open = (sheet: Sheet, focus?: Box) => setViewSheet({ sheet, focus });
 
   const setChecks = (ids: string[], on: boolean) => {
-    if (locked || verified) return;
+    if (verified) return;
     const next = { ...checks, ...Object.fromEntries(ids.map((id) => [id, on])) };
     store.saveTask(taskKey, { checks: next, started_at: st?.started_at || new Date().toISOString() }).catch(toastError);
   };
@@ -128,22 +127,21 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
 
   const checkRow = (c: PlanCheck) => (
     <label key={c.id} className={`check ${checks[c.id] ? 'done' : ''}`}>
-      <input type="checkbox" checked={!!checks[c.id]} disabled={locked || verified} onChange={() => setChecks([c.id], !checks[c.id])} />
+      <input type="checkbox" checked={!!checks[c.id]} disabled={verified} onChange={() => setChecks([c.id], !checks[c.id])} />
       <span>{c.text}</span>
     </label>
   );
 
   return (
     <Drawer title={t.name} sub={`${plan.byPhase[t.phase].name} · ${t.trade}`} pill={<TaskPill s={status} />} onClose={onClose}>
-      {blockers.length > 0 && (
-        <div className="notice warn">
-          <strong>Not ready to start.</strong> Waiting on:
+      {before.length > 0 && !verified && (
+        <div className="notice info">
+          Usually done after these, but you can go ahead:
           <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-            {blockers.map((b) => (
+            {before.map((b) => (
               <li key={b.key}>
                 {b.kind === 'task' ? <button className="btn-link" onClick={() => nav.openTask(b.key)}>{b.label}</button>
-                  : b.kind === 'insp' ? <button className="btn-link" onClick={() => nav.openInsp(b.key)}>{b.label}</button>
-                  : b.label}
+                  : <button className="btn-link" onClick={() => nav.openInsp(b.key)}>{b.label}</button>}
               </li>
             ))}
           </ul>
@@ -217,7 +215,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
                   {sheet && g.room.box && (
                     <span className="room-thumb"><DrawingCrop path={sheet.image_path} box={g.room.box} label={sheet.number || 'Plan'} onOpen={() => open(sheet, g.room.box)} /></span>
                   )}
-                  {!locked && !verified && done < items.length && (
+                  {!verified && done < items.length && (
                     <button className="btn btn-sm" onClick={() => setChecks(items.map((c) => c.id), true)}>Room done</button>
                   )}
                 </div>
@@ -233,9 +231,9 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
         {(st?.photos || []).length > 0 && (
           <div className="photos">{st!.photos.map((p) => <StoredImage key={p} path={p} alt="Site photo" />)}</div>
         )}
-        <label className="btn" style={{ alignSelf: 'flex-start' }} aria-disabled={busy || locked}>
+        <label className="btn" style={{ alignSelf: 'flex-start' }} aria-disabled={busy}>
           {busy ? 'Uploading…' : 'Add photo'}
-          <input id={`photo-${taskKey}`} type="file" accept="image/*" capture="environment" hidden disabled={busy || locked}
+          <input id={`photo-${taskKey}`} type="file" accept="image/*" capture="environment" hidden disabled={busy}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) addPhoto(f); e.target.value = ''; }} />
         </label>
       </section>
@@ -327,7 +325,7 @@ export function InspPanel({ store, nav, inspKey, onClose }: { store: ProjectStor
   return (
     <Drawer title={i.name} sub={`${plan.byPhase[i.phase].name} · ${i.authority} inspection`} pill={<InspPill s={s} />} onClose={onClose}>
       {!ready && s === 'pending' && (
-        <div className="notice warn">Verify these first: {i.after.map((a) => (
+        <div className="notice info">Usually booked once this work is complete: {i.after.map((a) => (
           <button key={a} className="btn-link" onClick={() => nav.openTask(a)} style={{ marginRight: 8 }}>{plan.tasks[a]?.name}</button>
         ))}</div>
       )}

@@ -28,7 +28,7 @@ export function FlowChart({ store, nav }: { store: ProjectStore; nav: Nav }) {
           <span className="num">{pp.done}/{pp.total} tasks{insp ? ` · ${inspDone}/${insp} insp.` : ''}</span>
           <GatePill s={g} />
         </div>
-        {p.id === laneId && <span className="lane-note">Runs alongside the interior once the envelope gate passes</span>}
+        {p.id === laneId && <span className="lane-note">Runs alongside the interior</span>}
       </button>
     );
   };
@@ -39,7 +39,7 @@ export function FlowChart({ store, nav }: { store: ProjectStore; nav: Nav }) {
         <h1>Construction plan</h1>
         <p className="muted" style={{ maxWidth: '65ch' }}>
           Each phase ends at a gate. A gate passes when every task is verified, every inspection is passed or marked not required,
-          and no deficiencies are open. Passing a gate unlocks the phases that depend on it.
+          and no deficiencies are open. Nothing is locked: any phase or task can be worked on at any time.
         </p>
       </div>
       <div className="flow" style={{ gridTemplateRows: `repeat(${FLOW_ROWS.length}, auto)` }}>
@@ -73,9 +73,6 @@ export function PhaseView({ store, nav, phaseId }: { store: ProjectStore; nav: N
         <div className="row between"><h1>{p.name}</h1><GatePill s={g} /></div>
         <p className="muted">{p.summary}</p>
         <Meter pct={pp.pct} />
-        {g === 'locked' && (
-          <p className="notice warn">Locked until {p.requires.filter((r) => !engine.gatePassed(r)).map((r) => plan.byPhase[r].name).join(' and ')} pass{p.requires.length === 1 ? 'es' : ''} its gate.</p>
-        )}
       </div>
 
       <section className="stack">
@@ -97,7 +94,7 @@ export function PhaseView({ store, nav, phaseId }: { store: ProjectStore; nav: N
                       {it.groups.length ? ` · ${it.groups.length} room${it.groups.length === 1 ? '' : 's'}` : ''}
                       {engine.linkedSheets(it).length ? ` · ${engine.linkedSheets(it).length} sheet${engine.linkedSheets(it).length === 1 ? '' : 's'}` : ''}
                     </span>
-                    {s === 'locked' && <span className="small muted">Waiting on {engine.taskBlockers(it).map((b) => b.label).join(', ')}</span>}
+                    {s !== 'verified' && engine.usuallyAfter(it).length > 0 && <span className="small muted">Usually after {engine.usuallyAfter(it).map((b) => b.label).join(', ')}</span>}
                     {(revised || dfs > 0) && (
                       <span className="row" style={{ gap: 6 }}>
                         {revised && <span className="pill bad">Drawing revised</span>}
@@ -134,7 +131,7 @@ export function PhaseView({ store, nav, phaseId }: { store: ProjectStore; nav: N
           {p.insps.map((i) => <li key={i.key}><Tick ok={engine.inspCleared(i.key)} /> {i.name} — {i.authority}</li>)}
           <li><Tick ok={defs.length === 0} /> No open deficiencies {defs.length ? <span className="muted num">({defs.length} open)</span> : null}</li>
         </ul>
-        {dependents.length > 0 && <p className="small muted">Passing this gate unlocks: {dependents.map((d) => d.name).join(', ')}.</p>}
+        {dependents.length > 0 && <p className="small muted">Usually followed by: {dependents.map((d) => d.name).join(', ')}.</p>}
       </section>
 
       {tradeNotes.length > 0 && (

@@ -1,23 +1,28 @@
 // Stage-gate logic. Pure functions of the plan + project data, so the same
-// rules can later run on the server (e.g. to block an API write) unchanged.
+// rules can later run on the server unchanged.
+//
+// Nothing is locked: every phase and task can be worked on at any time. The
+// template order ("after" tasks, "needs" inspections) is shown as a reminder of
+// the usual sequence, and a gate shows as passed once its phase is complete.
 
 import { roomId, type Box, type Plan, type PlanPhase, type PlanTask, type PlanInsp, type Features, type Room } from './template';
 import type { ProjectBundle, Sheet, InspStatus } from './types';
 
-export type TaskStatus = 'locked' | 'ready' | 'active' | 'review' | 'verified';
-export type GateStatus = 'locked' | 'open' | 'ready' | 'passed';
+export type TaskStatus = 'ready' | 'active' | 'review' | 'verified';
+export type GateStatus = 'open' | 'ready' | 'passed';
 
 export const TASK_LABEL: Record<TaskStatus, string> = {
-  locked: 'Waiting', ready: 'Ready', active: 'In progress', review: 'Ready to verify', verified: 'Verified',
+  ready: 'Ready', active: 'In progress', review: 'Ready to verify', verified: 'Verified',
 };
 export const GATE_LABEL: Record<GateStatus, string> = {
-  locked: 'Locked', open: 'In progress', ready: 'Gate ready', passed: 'Gate passed',
+  open: 'In progress', ready: 'Gate ready', passed: 'Gate passed',
 };
 export const INSP_LABEL: Record<InspStatus, string> = {
   pending: 'Not requested', requested: 'Requested', scheduled: 'Scheduled', passed: 'Passed', failed: 'Failed', na: 'Not required',
 };
 
-export interface Blocker { kind: 'phase' | 'task' | 'insp' | 'def'; key: string; label: string }
+/** Something that usually comes first. Advisory only. */
+export interface Prereq { kind: 'task' | 'insp'; key: string; label: string }
 
 export class Engine {
   constructor(public plan: Plan, public data: ProjectBundle) {}
@@ -34,10 +39,6 @@ export class Engine {
     return !!this.data.tasks[key]?.verified_at;
   }
 
-  phaseUnlocked(p: PlanPhase): boolean {
-    return p.requires.every((r) => this.gatePassed(r));
-  }
-
   openDefsFor(phase: string, taskKey?: string) {
     return this.data.defs.filter((d) => d.status !== 'closed' && d.phase_key === phase && (!taskKey || d.task_key === taskKey));
   }
@@ -45,24 +46,22 @@ export class Engine {
   gatePassed(phaseId: string): boolean {
     if (this.gateCache.has(phaseId)) return this.gateCache.get(phaseId)!;
     const p = this.plan.byPhase[phaseId];
-    const ok = !!p && this.phaseUnlocked(p) && p.tasks.every((t) => this.isVerified(t.key))
+    const ok = !!p && p.tasks.every((t) => this.isVerified(t.key))
       && p.insps.every((i) => this.inspCleared(i.key)) && this.openDefsFor(phaseId).length === 0;
     this.gateCache.set(phaseId, ok);
     return ok;
   }
 
   gateStatus(p: PlanPhase): GateStatus {
-    if (!this.phaseUnlocked(p)) return 'locked';
     if (this.gatePassed(p.id)) return 'passed';
     const tasksDone = p.tasks.every((t) => this.isVerified(t.key));
     const inspsDone = p.insps.every((i) => this.inspCleared(i.key));
     return tasksDone && inspsDone ? 'ready' : 'open';
   }
 
-  taskBlockers(t: PlanTask): Blocker[] {
-    const out: Blocker[] = [];
-    const p = this.plan.byPhase[t.phase];
-    for (const r of p.requires) if (!this.gatePassed(r)) out.push({ kind: 'phase', key: r, label: `${this.plan.byPhase[r].name} gate` });
+  /** Earlier steps and inspections not done yet that usually come before this task. Never blocks. */
+  usuallyAfter(t: PlanTask): Prereq[] {
+    const out: Prereq[] = [];
     for (const a of t.after) if (!this.isVerified(a)) out.push({ kind: 'task', key: a, label: this.plan.tasks[a]?.name || a });
     for (const n of t.needs) if (!this.inspCleared(n)) out.push({ kind: 'insp', key: n, label: `${this.plan.insps[n]?.name || n} inspection` });
     return out;
@@ -76,7 +75,6 @@ export class Engine {
 
   taskStatus(t: PlanTask): TaskStatus {
     if (this.isVerified(t.key)) return 'verified';
-    if (this.taskBlockers(t).length) return 'locked';
     const done = this.checksDone(t);
     if (done === t.checks.length) return 'review';
     if (done > 0 || this.data.tasks[t.key]?.started_at || (this.data.tasks[t.key]?.photos?.length || 0) > 0) return 'active';
@@ -85,12 +83,10 @@ export class Engine {
 
   /**
    * Why a task can't be completed yet, if it can't. Completing ticks any remaining
-   * checks, so only hold points (earlier steps, inspections) and open deficiencies block it.
+   * checks; only an open deficiency on the task itself stops it.
    */
   completeIssues(t: PlanTask): string[] {
     const out: string[] = [];
-    const b = this.taskBlockers(t);
-    if (b.length) out.push(`Waiting on ${b.map((x) => x.label).join(', ')}`);
     const defs = this.openDefsFor(t.phase, t.key);
     if (defs.length) out.push(`${defs.length} open deficienc${defs.length === 1 ? 'y' : 'ies'} on this task`);
     return out;
@@ -111,8 +107,9 @@ export class Engine {
     return id ? this.data.sheets.find((s) => s.id === id) : undefined;
   }
 
+  /** The work this inspection covers is complete, so it can be booked. Advisory. */
   inspReady(i: PlanInsp): boolean {
-    return this.phaseUnlocked(this.plan.byPhase[i.phase]) && i.after.every((a) => this.isVerified(a));
+    return i.after.every((a) => this.isVerified(a));
   }
 
   linkedSheets(t: { topics: readonly string[] }): Sheet[] {
