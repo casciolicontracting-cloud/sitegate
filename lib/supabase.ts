@@ -20,20 +20,21 @@ export const BUCKET = 'project-files';
 const urlCache = new Map<string, { url: string; exp: number }>();
 
 /** Signed URL for a private file, cached for most of its lifetime. */
-export async function fileUrl(path: string | null | undefined): Promise<string | null> {
+export async function fileUrl(path: string | null | undefined, bucket = BUCKET): Promise<string | null> {
   if (!path) return null;
-  const hit = urlCache.get(path);
+  const key = `${bucket}/${path}`;
+  const hit = urlCache.get(key);
   if (hit && hit.exp > Date.now()) return hit.url;
-  const { data, error } = await supabase().storage.from(BUCKET).createSignedUrl(path, 60 * 60);
+  const { data, error } = await supabase().storage.from(bucket).createSignedUrl(path, 60 * 60);
   if (error || !data) return null;
-  urlCache.set(path, { url: data.signedUrl, exp: Date.now() + 50 * 60 * 1000 });
+  urlCache.set(key, { url: data.signedUrl, exp: Date.now() + 50 * 60 * 1000 });
   return data.signedUrl;
 }
 
-export async function uploadFile(path: string, blob: Blob): Promise<string> {
-  const { error } = await supabase().storage.from(BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+export async function uploadFile(path: string, blob: Blob, bucket = BUCKET): Promise<string> {
+  const { error } = await supabase().storage.from(bucket).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
   if (error) throw error;
-  urlCache.delete(path);
+  urlCache.delete(`${bucket}/${path}`);
   return path;
 }
 

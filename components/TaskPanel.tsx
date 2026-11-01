@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { codeRef, OBC_EDITION } from '@/lib/codes';
+import { citedClauses, taskClauseIds } from '@/lib/codeRefs';
 import { TOPIC_LABEL, type Box, type PlanCheck, type Topic } from '@/lib/template';
 import { newId, uploadFile } from '@/lib/supabase';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Inspection, InspStatus, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
+import { ClauseChips, ClauseList, ClauseViewer } from './CodeRefs';
 import { DrawingCrop, fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
 
 function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
@@ -63,6 +65,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const [defTitle, setDefTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [clause, setClause] = useState<string | null>(null);
   if (!data || !plan || !engine) return null;
   const t = plan.tasks[taskKey];
   const st = data.tasks[taskKey];
@@ -128,7 +131,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const checkRow = (c: PlanCheck) => (
     <label key={c.id} className={`check ${checks[c.id] ? 'done' : ''}`}>
       <input type="checkbox" checked={!!checks[c.id]} disabled={verified} onChange={() => setChecks([c.id], !checks[c.id])} />
-      <span>{c.text}</span>
+      <span>{c.text} <ClauseChips ids={c.clauses} onOpen={setClause} /></span>
     </label>
   );
 
@@ -190,6 +193,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
               <div key={i} className="from-dwg">
                 {n.text}{' '}
                 <button className="btn-link mono" onClick={() => open(n.sheet, n.box)}>{n.sheet.number || 'sheet'}{n.where ? ` · ${n.where}` : ''}</button>
+                <ClauseChips ids={citedClauses(`${n.text} ${n.where || ''} ${n.code || ''}`)} onOpen={setClause} />
               </div>
             ))}
             <span className="small muted">Read from the sheets by Claude. Confirm against the drawing before building to it.</span>
@@ -240,6 +244,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
 
       <section>
         <h3>Code and standards</h3>
+        <ClauseList ids={taskClauseIds(t)} onOpen={setClause} edition={data.project.code_edition} />
         <CodeList codes={t.codes} />
       </section>
 
@@ -296,6 +301,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
         </section>
       )}
 
+      {clause && <ClauseViewer id={clause} onClose={() => setClause(null)} />}
       {viewSheet && (
         <SheetViewer path={viewSheet.sheet.image_path} title={`${viewSheet.sheet.number} ${viewSheet.sheet.title}`} focus={viewSheet.focus} onClose={() => setViewSheet(null)} />
       )}
@@ -306,6 +312,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
 export function InspPanel({ store, nav, inspKey, onClose }: { store: ProjectStore; nav: Nav; inspKey: string; onClose: () => void }) {
   const { data, plan, engine } = store;
   const [notes, setNotes] = useState(data?.insps[inspKey]?.notes || '');
+  const [clause, setClause] = useState<string | null>(null);
   if (!data || !plan || !engine) return null;
   const i = plan.insps[inspKey];
   const rec = data.insps[inspKey];
@@ -353,8 +360,10 @@ export function InspPanel({ store, nav, inspKey, onClose }: { store: ProjectStor
       </section>
       <section>
         <h3>Code and standards</h3>
+        <ClauseList ids={i.clauses} onOpen={setClause} edition={data.project.code_edition} />
         <CodeList codes={i.codes} />
       </section>
+      {clause && <ClauseViewer id={clause} onClose={() => setClause(null)} />}
     </Drawer>
   );
 }

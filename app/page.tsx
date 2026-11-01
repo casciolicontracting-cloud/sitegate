@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { RequireAuth, signOut } from '@/components/Auth';
+import { CodeBooks } from '@/components/CodeRefs';
 import { Mark, fmtDate, toastError } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import type { Project } from '@/lib/types';
@@ -100,6 +101,8 @@ function Projects() {
             ))}
           </div>
         )}
+
+        <CodeBooks />
       </main>
     </>
   );

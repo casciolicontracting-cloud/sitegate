@@ -22,6 +22,34 @@ async function pdfjs() {
   return lib;
 }
 
+type PdfDoc = Awaited<ReturnType<Awaited<ReturnType<typeof pdfjs>>['getDocument']>['promise']>;
+const openDocs = new Map<string, Promise<PdfDoc>>();
+
+/**
+ * Draw one page of a large stored PDF (e.g. the Building Code Compendium) into a canvas.
+ * Pages are fetched with HTTP range requests, so only the parts needed are downloaded.
+ * `key` identifies the file across signed-URL refreshes.
+ */
+export async function renderPdfPage(key: string, url: string, page: number, canvas: HTMLCanvasElement, cssWidth: number): Promise<number> {
+  if (!openDocs.has(key)) {
+    const lib = await pdfjs();
+    const p = lib.getDocument({ url, disableAutoFetch: true, disableStream: true, rangeChunkSize: 262144 }).promise;
+    p.catch(() => openDocs.delete(key));
+    openDocs.set(key, p);
+  }
+  const doc = await openDocs.get(key)!;
+  const n = Math.min(Math.max(1, page), doc.numPages);
+  const pg = await doc.getPage(n);
+  const base = pg.getViewport({ scale: 1 });
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  const vp = pg.getViewport({ scale: (cssWidth / base.width) * ratio });
+  canvas.width = Math.round(vp.width);
+  canvas.height = Math.round(vp.height);
+  canvas.style.width = `${cssWidth}px`;
+  await pg.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
+  return doc.numPages;
+}
+
 function canvasToBlob(c: HTMLCanvasElement, quality = 0.82): Promise<Blob> {
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Could not encode image'))), 'image/jpeg', quality));
 }

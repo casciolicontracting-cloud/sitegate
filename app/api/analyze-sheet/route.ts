@@ -24,7 +24,7 @@ Reply with only one JSON object, no prose, in this shape:
      "cladding": array of "brick"|"stone"|"stucco"|"siding", "roof": "asphalt"|"metal"|"other",
      "heating": "gas_forced"|"heat_pump"|"electric"|"boiler", "gas": boolean, "hrv": boolean,
      "fireplace": "none"|"gas"|"wood", "servicing": "municipal"|"septic_well", "bathrooms": integer},
-  "notes": up to 15 objects {"topic": one value from the topics list, "text": a specific requirement from the sheet condensed to under 140 characters (sizes, materials, spacing, ratings, elevations, schedules), "where": detail or section reference, "" if none, "box": location of that information},
+  "notes": up to 15 objects {"topic": one value from the topics list, "text": a specific requirement from the sheet condensed to under 140 characters (sizes, materials, spacing, ratings, elevations, schedules), "where": detail or section reference, "" if none, "code": the Ontario Building Code clause number the sheet cites for it (e.g. "9.8.8.3"), "" if none, "box": location of that information},
   "regions": up to 12 objects, one per distinct drawing view on the sheet (floor plan, elevation, wall or building section, detail, schedule, legend, general notes block):
     {"topic": the one value from the topics list it is most useful for, "label": short name as titled on the sheet (e.g. "Typical wall section 2/A5", "Window schedule"), "box": its outline},
   "rooms": for floor plan sheets only, up to 40 objects, one per labelled room or space:
@@ -128,7 +128,8 @@ export async function POST(req: Request) {
     const topic = String(o.topic || '');
     const t = String(o.text || '').slice(0, 200).trim();
     const box = cleanBox(o.box);
-    return t && isTopic(topic) ? [{ topic, text: t, where: String(o.where || '').slice(0, 80), keep: true, ...(box ? { box } : {}) }] : [];
+    const code = String(o.code || '').replace(/[^0-9A-Za-z. -]/g, '').slice(0, 30).trim();
+    return t && isTopic(topic) ? [{ topic, text: t, where: String(o.where || '').slice(0, 80), keep: true, ...(box ? { box } : {}), ...(code ? { code } : {}) }] : [];
   }) : [];
   const questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0, 5).map((q) => String(q).slice(0, 240)).filter(Boolean) : [];
   const regions = Array.isArray(parsed.regions) ? parsed.regions.slice(0, 12).flatMap((r) => {

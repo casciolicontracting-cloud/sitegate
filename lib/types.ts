@@ -22,6 +22,7 @@ export interface SheetNote {
   where?: string;
   keep?: boolean;
   box?: Box;
+  code?: string; // building code clause the sheet cites for this note, if any
 }
 
 /** A room Claude found on a floor plan sheet. */

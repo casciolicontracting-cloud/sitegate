@@ -250,3 +250,10 @@ button.chip { cursor: pointer; }
 .room-list { display: flex; flex-direction: column; gap: 6px; }
 .room-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; align-items: center; }
 @media (max-width: 600px) { .room-row { grid-template-columns: 1fr 1fr; } }
+
+/* 2024 OBC clause references */
+.clause-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.clause-chip { font: 600 0.72rem var(--font-m); padding: 1px 7px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--accent); cursor: pointer; text-decoration: none; }
+.check.done .clause-chip { text-decoration: none; }
+button.ref.clause { text-align: left; cursor: pointer; color: inherit; font: inherit; width: 100%; }
+button.ref.clause:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }

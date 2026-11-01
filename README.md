@@ -26,6 +26,8 @@ checklists, Ontario Building Code references, inspections, deficiencies and trad
 | --- | --- |
 | `lib/template.ts` | Phases, tasks, checklists, inspections, topics, trades, feature model, `buildPlan` |
 | `lib/codes.ts` | OBC / ESA / TSSA / Tarion / HCRA reference library (pointers + plain-language scope, versioned by edition) |
+| `lib/obc.ts` | 2024 OBC clause references per task, checklist line and inspection, with Compendium page numbers (generated from `tools/obc-spec.js`) |
+| `components/CodeRefs.tsx` | Clause lists and chips, the in-app Compendium page viewer, and the Code reference upload panel |
 | `lib/status.ts` | Stage-gate engine and feature aggregation from analyzed sheets |
 | `lib/useProject.ts` | Loads a project bundle from Supabase; all writes go through here |
 | `lib/pdf.ts` | PDF/image rendering and analysis crops (browser) |

@@ -22,13 +22,15 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 ## Key files
 - `lib/template.ts` — phases, tasks, checklists, inspections, topics, trades, feature model, `buildPlan()`. The plan is regenerated from template + `projects.features`; progress is stored against stable task keys.
 - `lib/status.ts` — `Engine`: all gate, reminder, verification and revision rules. Keep business rules here as pure functions.
-- `lib/codes.ts` — code reference library.
+- `lib/codes.ts` — section-level reference library (OBC sections, ESA, TSSA, Tarion, HCRA, OHSA).
+- `lib/obc.ts` (generated from `tools/obc-spec.js`) — 2024 OBC clause references per task, inspection and checklist line: number, heading, Compendium volume + page, and our own plain-language note. `lib/obc-pages.json` maps every article in Parts 7, 8, 9, 12 and Div. C Part 1 to its page so clauses cited on drawings open too. `lib/codeRefs.ts` has the lookups; `components/CodeRefs.tsx` the UI, page viewer and the Code reference upload panel.
 - `lib/useProject.ts` — loads and writes project data.
 - `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`.
 - `supabase/migrations/` — schema; add a migration for every schema change.
 
 ## Rules
 - Code references point to where a requirement lives with a plain-language summary. Never present code text as authoritative and never let the app decide compliance.
+- Never copy Building Code Compendium text into the repo or the app (the repo is public; the Ministry treats reproduction in a business tool as commercial use needing a licence). Clause numbers, headings, page numbers and our own summaries only. The Compendium itself lives whole and unaltered in the private `reference` storage bucket (team-only, migration 0003), uploaded from the Projects page.
 - AI-read drawing data stays a suggestion until a person confirms it.
 - Every new table gets RLS; run Supabase security advisors after schema changes.
 - Phone-first: supervisors use this on site.

@@ -1,3 +1,5 @@
+import { CHECK_CLAUSES, INSP_CLAUSES, TASK_CLAUSES } from './obc';
+
 // Construction template for an Ontario custom home.
 //
 // The plan for a project is generated from this template plus the project's
@@ -366,11 +368,13 @@ export interface PlanTask {
   groups: CheckGroup[];
   /** The room this whole task is for (e.g. one bathroom). */
   room?: Room;
+  /** 2024 OBC clauses for the task as a whole (see lib/obc.ts). */
+  clauses: string[];
   after: string[];
   needs: string[];
 }
 
-export interface PlanCheck { id: string; text: string; group?: string }
+export interface PlanCheck { id: string; text: string; group?: string; clauses: string[] }
 export interface CheckGroup { id: string; label: string; room: Room }
 
 export interface PlanInsp {
@@ -382,6 +386,7 @@ export interface PlanInsp {
   codes: string[];
   after: string[];
   howTo: string;
+  clauses: string[];
 }
 
 export interface PlanPhase {
@@ -434,7 +439,7 @@ export function buildPlan(rawFeatures: Partial<Features> | null | undefined): Pl
     for (const it of ph.items) {
       if (it.when && !it.when(f)) continue;
       if (it.kind === 'insp') {
-        const pi: PlanInsp = { kind: 'insp', key: it.id, name: it.name, phase: ph.id, authority: it.authority, codes: it.codes, after: it.after, howTo: it.howTo };
+        const pi: PlanInsp = { kind: 'insp', key: it.id, name: it.name, phase: ph.id, authority: it.authority, codes: it.codes, after: it.after, howTo: it.howTo, clauses: INSP_CLAUSES[it.id] || [] };
         items.push(pi);
         insps[pi.key] = pi;
         continue;
@@ -446,19 +451,19 @@ export function buildPlan(rawFeatures: Partial<Features> | null | undefined): Pl
         if (it.repeat && it.whenN && !it.whenN(f, n)) continue;
         const sub = (s: string) => s.replace(/\{n\}/g, String(n)).replace(/\{level\}/g, LEVELS[n - 1] || `Level ${n}`);
         const room = byRoom ? baths[n - 1] : undefined;
-        const checks: PlanCheck[] = it.checks.map((text, i) => ({ id: String(i), text }));
+        const checks: PlanCheck[] = it.checks.map((text, i) => ({ id: String(i), text, clauses: CHECK_CLAUSES[it.id]?.[i] || [] }));
         const groups: CheckGroup[] = [];
         if (it.perRoom) {
           for (const r of rooms) {
             const extra = it.perRoom(r);
             if (!extra.length) continue;
             groups.push({ id: r.id, label: roomLabel(r), room: r });
-            extra.forEach((text, j) => checks.push({ id: `${r.id}:${j}`, text, group: r.id }));
+            extra.forEach((text, j) => checks.push({ id: `${r.id}:${j}`, text, group: r.id, clauses: [] }));
           }
         }
         const pt: PlanTask = {
           kind: 'task', key: sub(it.id), name: room ? `Bathroom: ${roomLabel(room)}` : sub(it.name), phase: ph.id, trade: it.trade,
-          topics: it.topics, codes: it.codes, checks, groups, room, after: (it.after || []).map(sub), needs: it.needs || [],
+          topics: it.topics, codes: it.codes, checks, groups, room, clauses: TASK_CLAUSES[it.id] || [], after: (it.after || []).map(sub), needs: it.needs || [],
         };
         items.push(pt);
         tasks[pt.key] = pt;
