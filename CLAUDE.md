@@ -11,6 +11,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 - Rooms: Claude labels rooms on floor plans (name, level, kind, box) and drawing views on every sheet (topic, label, box) into `sheets.rooms` / `sheets.regions`. Confirmed rooms live in `projects.features.rooms`; edit them in the review step or on the Drawings tab.
 - Inspections (municipal, ESA, TSSA, engineer, energy advisor), recorded per phase; they count toward the gate but never lock work.
 - Verification records who, when, and each linked sheet's revision; a later revision flags the task for recheck.
+- Progress tabs (`components/Progress.tsx`, rules in `lib/progress.ts`): Timeline (everything completed, grouped by phase or latest first), Photos (task and deficiency photos by phase), Gantt chart (planned phase dates vs actual work). Planned dates live in `projects.schedule` (migration 0004); phases without their own dates follow `TYPICAL_DAYS` from the project start and move when an earlier phase moves.
 
 ## Stack
 - Next.js 15 App Router, TypeScript, React 19, plain CSS with tokens (`app/globals.css`).
@@ -25,7 +26,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 - `lib/codes.ts` — section-level reference library (OBC sections, ESA, TSSA, Tarion, HCRA, OHSA).
 - `lib/obc.ts` (generated from `tools/obc-spec.js`) — 2024 OBC clause references per task, inspection and checklist line: number, heading, Compendium volume + page, and our own plain-language note. `lib/obc-pages.json` maps every article in Parts 7, 8, 9, 12 and Div. C Part 1 to its page so clauses cited on drawings open too. `lib/codeRefs.ts` has the lookups; `components/CodeRefs.tsx` the UI, page viewer and the Code reference upload panel.
 - `lib/useProject.ts` — loads and writes project data.
-- `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`.
+- `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`, `Progress` (Timeline, Photos, Gantt chart).
 - `supabase/migrations/` — schema; add a migration for every schema change.
 
 ## Rules

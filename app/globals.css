@@ -257,3 +257,59 @@ button.chip { cursor: pointer; }
 .check.done .clause-chip { text-decoration: none; }
 button.ref.clause { text-align: left; cursor: pointer; color: inherit; font: inherit; width: 100%; }
 button.ref.clause:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+
+/* Two-way toggle (Timeline order, Gantt zoom) */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); overflow: hidden; }
+.seg button { border: 0; background: none; padding: 8px 14px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed='true'] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); font-weight: 600; }
+
+/* Timeline */
+.tl-item { align-items: flex-start; }
+.tl-date { display: flex; flex-direction: column; width: 92px; flex: none; line-height: 1.3; }
+.tl-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--accent); }
+.tl-dot.ok { background: var(--ok); }
+.tl-dot.blue { background: var(--blue); }
+.tl-dot.warn { background: var(--warn); }
+@media (max-width: 480px) { .tl-date { width: 72px; } }
+
+/* Photo gallery */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.shot { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shot > button { padding: 0; border: 0; background: var(--sunk); border-radius: var(--r-sm); overflow: hidden; cursor: zoom-in; aspect-ratio: 1; display: grid; place-items: center; }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot figcaption { display: flex; flex-direction: column; min-width: 0; }
+.shot figcaption .btn-link { text-align: left; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 480px) { .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
+
+/* Gantt chart: phase names stay put while the dates scroll sideways */
+.gantt { --g-label: 150px; overflow-x: auto; -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--card); }
+.g-row { display: grid; grid-template-columns: var(--g-label) var(--gantt-w); min-height: 48px; border-top: 1px solid var(--line); width: max-content; }
+.g-row.g-head { border-top: 0; min-height: 34px; }
+.g-row.on .g-track, .g-row.on .g-label { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.g-label { position: sticky; left: 0; z-index: 2; background: var(--surface); border: 0; border-right: 1px solid var(--line); padding: 6px 12px; display: flex; flex-direction: column; justify-content: center; text-align: left; cursor: pointer; color: inherit; min-width: 0; }
+.g-head .g-label { cursor: default; }
+.g-label .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-track { position: relative; cursor: pointer; }
+.g-head .g-track { cursor: default; }
+.g-tick { position: absolute; top: 8px; font-size: 0.72rem; color: var(--muted); white-space: nowrap; padding-left: 4px; border-left: 1px solid var(--line); line-height: 1.2; }
+.g-tick.major { font-weight: 600; color: var(--ink); }
+.g-grid { position: absolute; top: 0; bottom: 0; border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.g-bar { position: absolute; top: 9px; height: 20px; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.g-bar > i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.g-bar.ok { background: color-mix(in srgb, var(--ok) 18%, var(--surface)); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.g-bar.ok > i { background: var(--ok); }
+.g-bar.warn { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.g-bar.warn > i { background: var(--warn); }
+.g-bar > em { position: relative; font-style: normal; font-size: 0.7rem; font-weight: 600; padding: 0 6px; line-height: 18px; color: var(--ink); mix-blend-mode: normal; text-shadow: 0 0 3px var(--surface); }
+.g-actual { position: absolute; top: 33px; height: 5px; border-radius: 3px; background: var(--ink); opacity: 0.55; }
+.g-insp { position: absolute; top: 30px; width: 10px; height: 10px; margin-left: -5px; transform: rotate(45deg); background: var(--blue); border: 1px solid var(--surface); }
+.g-insp.ok { background: var(--ok); }
+.g-today { position: absolute; top: 0; bottom: 0; border-left: 2px solid var(--bad); opacity: 0.7; z-index: 1; }
+.gantt-key { gap: 16px; }
+.gantt-key i { display: inline-block; vertical-align: middle; margin-right: 4px; }
+.k-bar { width: 22px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) 50%, color-mix(in srgb, var(--accent) 18%, var(--surface)) 50%); }
+.k-actual { width: 22px; height: 5px; border-radius: 3px; background: var(--ink); opacity: 0.55; }
+.k-insp { width: 9px; height: 9px; transform: rotate(45deg); background: var(--blue); }
+.k-today { width: 2px; height: 14px; background: var(--bad); }
+@media (max-width: 480px) { .gantt { --g-label: 104px; } .g-label { padding: 6px 8px; } }

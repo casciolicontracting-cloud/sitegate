@@ -8,9 +8,10 @@ import { Today } from './Today';
 import { FlowChart, PhaseView } from './Flow';
 import { InspPanel, TaskPanel } from './TaskPanel';
 import { ContactsView, DeficienciesView, DrawingsView, InspectionsView, NotesView } from './Registers';
+import { GanttView, PhotosView, TimelineView } from './Progress';
 import { Mark } from './ui';
 
-export type Tab = 'today' | 'flow' | 'drawings' | 'inspections' | 'deficiencies' | 'notes' | 'contacts';
+export type Tab = 'today' | 'flow' | 'gantt' | 'timeline' | 'photos' | 'drawings' | 'inspections' | 'deficiencies' | 'notes' | 'contacts';
 
 export interface Nav {
   tab: Tab;
@@ -21,7 +22,8 @@ export interface Nav {
 }
 
 const TABS: Array<[Tab, string]> = [
-  ['today', 'Today'], ['flow', 'Plan'], ['drawings', 'Drawings'], ['inspections', 'Inspections'],
+  ['today', 'Today'], ['flow', 'Plan'], ['gantt', 'Gantt chart'], ['timeline', 'Timeline'], ['photos', 'Photos'],
+  ['drawings', 'Drawings'], ['inspections', 'Inspections'],
   ['deficiencies', 'Deficiencies'], ['notes', 'Notes & questions'], ['contacts', 'Contacts'],
 ];
 
@@ -84,6 +86,9 @@ export function ProjectApp({ id }: { id: string }) {
           <>
             {tab === 'today' && <Today store={store} nav={nav} />}
             {tab === 'flow' && (phase && plan.byPhase[phase] ? <PhaseView store={store} nav={nav} phaseId={phase} /> : <FlowChart store={store} nav={nav} />)}
+            {tab === 'gantt' && <GanttView store={store} nav={nav} />}
+            {tab === 'timeline' && <TimelineView store={store} nav={nav} />}
+            {tab === 'photos' && <PhotosView store={store} nav={nav} />}
             {tab === 'drawings' && <DrawingsView store={store} nav={nav} />}
             {tab === 'inspections' && <InspectionsView store={store} nav={nav} />}
             {tab === 'deficiencies' && <DeficienciesView store={store} nav={nav} />}

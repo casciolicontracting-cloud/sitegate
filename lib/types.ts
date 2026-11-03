@@ -1,4 +1,5 @@
 import type { Box, Features, RoomKind, Topic } from './template';
+import type { Schedule } from './progress';
 
 export type Stage = 'drawings' | 'review' | 'active';
 
@@ -12,6 +13,7 @@ export interface Project {
   stage: Stage;
   features: Partial<Features>;
   code_edition: string;
+  schedule: Schedule; // planned phase dates for the Gantt chart
   created_by: string | null;
   created_at: string;
 }
