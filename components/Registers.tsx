@@ -209,8 +209,27 @@ export function DeficienciesView({ store, nav }: { store: ProjectStore; nav: Nav
   const [due, setDue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [logging, setLogging] = useState(false);
+  // One trade's list, kept in the address (#deficiencies-trade-…) so it can be sent to that trade.
+  const only = nav.phase;
+  useEffect(() => { if (only) setTrade(only); }, [only]);
   if (!data || !plan) return null;
   const list = data.defs.filter((d) => filter === 'all' || d.status !== 'closed');
+  const NONE = 'No trade set';
+  const tradeOf = (d: Deficiency) => d.trade || NONE;
+  const rank = (t: string) => (t === NONE ? 1e3 : TRADES.indexOf(t as never) + 1 || 999);
+  const trades = [...new Set(list.map(tradeOf))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const shown = only ? trades.filter((t) => t === only) : trades;
+
+  async function shareTrade(t: string) {
+    const link = `${window.location.origin}/projects/${data!.project.id}#deficiencies-trade-${encodeURIComponent(t)}`;
+    const n = list.filter((d) => tradeOf(d) === t && d.status !== 'closed').length;
+    const text = `${data!.project.name}: ${n} open deficienc${n === 1 ? 'y' : 'ies'} for ${t}.\n${link}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: `${t} deficiencies`, text }); } catch { /* closed the share sheet */ }
+      return;
+    }
+    try { await navigator.clipboard.writeText(text); toast(`Link for ${t} copied. Paste it into a text or email.`); } catch { toast(link); }
+  }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -246,28 +265,47 @@ export function DeficienciesView({ store, nav }: { store: ProjectStore; nav: Nav
         <div className="field"><span>Photos</span><StagedPhotos files={files} onChange={setFiles} /></div>
         <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={logging}>{logging ? (files.length ? 'Uploading photos…' : 'Logging…') : 'Log deficiency'}</button>
       </form>
-      <div className="list">
-        {list.length === 0 && <div className="empty">{filter === 'open' ? 'No open deficiencies.' : 'None logged yet.'}</div>}
-        {list.map((d) => (
-          <div key={d.id} className="item" style={{ cursor: 'default', alignItems: 'flex-start' }}>
-            <span className={`pill ${d.status === 'closed' ? 'ok' : d.status === 'fixed' ? 'warn' : 'bad'}`}>{d.status === 'open' ? 'Open' : d.status === 'fixed' ? 'Fixed' : 'Closed'}</span>
-            <div className="grow stack" style={{ gap: 4 }}>
-              <span className="t">{d.title}</span>
-              <span className="s">
-                {[d.phase_key && plan.byPhase[d.phase_key]?.name, d.trade, d.due_on && `due ${fmtDate(d.due_on)}`, `logged ${fmtDate(d.created_at)}`].filter(Boolean).join(' · ')}
-                {d.task_key && plan.tasks[d.task_key] && <> · <button className="btn-link" onClick={() => nav.openTask(d.task_key!)}>{plan.tasks[d.task_key].name}</button></>}
-              </span>
-              <PhotoGrid small paths={d.photos || []} title={`Deficiency: ${d.title}`}
-                onAdd={(f) => store.addDefPhotos(d.id, f)} onDelete={(p) => store.deleteDefPhoto(d.id, p)} />
-              <div className="row">
-                {d.status === 'open' && <button className="btn btn-sm" onClick={() => setStatus(d, 'fixed')}>Mark fixed</button>}
-                {d.status === 'fixed' && <><button className="btn btn-sm btn-ok" onClick={() => setStatus(d, 'closed')}>Verify and close</button><button className="btn btn-sm" onClick={() => setStatus(d, 'open')}>Not fixed</button></>}
-                {d.status === 'closed' && <button className="btn btn-sm btn-ghost" onClick={() => setStatus(d, 'open')}>Reopen</button>}
-              </div>
-            </div>
+      {trades.length > 0 && (
+        <div className="topic-chips" role="group" aria-label="Trade">
+          <button className={`chip ${!only ? 'on' : ''}`} onClick={() => nav.go('deficiencies')}>All trades <span className="num">{list.length}</span></button>
+          {trades.map((t) => (
+            <button key={t} className={`chip ${only === t ? 'on' : ''}`} onClick={() => nav.go('deficiencies', t)}>
+              {t} <span className="num">{list.filter((d) => tradeOf(d) === t).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {list.length === 0 && <div className="list"><div className="empty">{filter === 'open' ? 'No open deficiencies.' : 'None logged yet.'}</div></div>}
+      {only && !trades.includes(only) && list.length > 0 && <div className="list"><div className="empty">Nothing {filter === 'open' ? 'open ' : ''}for {only}.</div></div>}
+      {shown.map((t) => (
+        <section key={t} className="stack">
+          <div className="section-head" style={{ margin: 0 }}>
+            <h2>{t}</h2>
+            {t !== NONE && <button className="btn btn-sm" onClick={() => shareTrade(t)} aria-label={`Share the ${t} list`}>Share list</button>}
           </div>
-        ))}
-      </div>
+          <div className="list">
+            {list.filter((d) => tradeOf(d) === t).map((d) => (
+              <div key={d.id} className="item" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                <span className={`pill ${d.status === 'closed' ? 'ok' : d.status === 'fixed' ? 'warn' : 'bad'}`}>{d.status === 'open' ? 'Open' : d.status === 'fixed' ? 'Fixed' : 'Closed'}</span>
+                <div className="grow stack" style={{ gap: 4 }}>
+                  <span className="t">{d.title}</span>
+                  <span className="s">
+                    {[d.phase_key && plan.byPhase[d.phase_key]?.name, d.trade, d.due_on && `due ${fmtDate(d.due_on)}`, `logged ${fmtDate(d.created_at)}`].filter(Boolean).join(' · ')}
+                    {d.task_key && plan.tasks[d.task_key] && <> · <button className="btn-link" onClick={() => nav.openTask(d.task_key!)}>{plan.tasks[d.task_key].name}</button></>}
+                  </span>
+                  <PhotoGrid small paths={d.photos || []} title={`Deficiency: ${d.title}`}
+                    onAdd={(f) => store.addDefPhotos(d.id, f)} onDelete={(p) => store.deleteDefPhoto(d.id, p)} />
+                  <div className="row">
+                    {d.status === 'open' && <button className="btn btn-sm" onClick={() => setStatus(d, 'fixed')}>Mark fixed</button>}
+                    {d.status === 'fixed' && <><button className="btn btn-sm btn-ok" onClick={() => setStatus(d, 'closed')}>Verify and close</button><button className="btn btn-sm" onClick={() => setStatus(d, 'open')}>Not fixed</button></>}
+                    {d.status === 'closed' && <button className="btn btn-sm btn-ghost" onClick={() => setStatus(d, 'open')}>Reopen</button>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

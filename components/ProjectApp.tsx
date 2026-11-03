@@ -29,18 +29,18 @@ const TABS: Array<[Tab, string]> = [
 
 export function ProjectApp({ id }: { id: string }) {
   const store = useProject(id);
-  const [tab, setTab] = useState<Tab>('today');
-  const [phase, setPhase] = useState<string | null>(null);
+  // Start from the URL hash (this only renders in the browser, after sign-in), so a refresh or
+  // shared link lands in the same place: #flow-phase-<phase id>, #deficiencies-trade-<trade>.
+  const [start] = useState(() => {
+    const [t, sub] = window.location.hash.slice(1).split(/-(?:phase|trade)-/);
+    return TABS.some(([k]) => k === t) ? { tab: t as Tab, sub: sub ? decodeURIComponent(sub) : null } : { tab: 'today' as Tab, sub: null };
+  });
+  const [tab, setTab] = useState<Tab>(start.tab);
+  const [phase, setPhase] = useState<string | null>(start.sub);
   const [panel, setPanel] = useState<{ kind: 'task' | 'insp'; key: string } | null>(null);
 
-  // Keep the current view in the URL hash so a refresh or shared link lands in the same place.
   useEffect(() => {
-    const h = window.location.hash.slice(1);
-    const [t, ph] = h.split('-phase-');
-    if (TABS.some(([k]) => k === t)) { setTab(t as Tab); if (ph) setPhase(ph); }
-  }, []);
-  useEffect(() => {
-    const h = phase && tab === 'flow' ? `${tab}-phase-${phase}` : tab;
+    const h = !phase ? tab : tab === 'flow' ? `${tab}-phase-${phase}` : tab === 'deficiencies' ? `${tab}-trade-${encodeURIComponent(phase)}` : tab;
     history.replaceState(null, '', `#${h}`);
   }, [tab, phase]);
 
