@@ -323,3 +323,9 @@ button.ref.clause:hover { border-color: color-mix(in srgb, var(--accent) 40%, va
 .ph-del { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgb(17 24 39 / 0.72); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
 .ph-del:hover { background: var(--bad); }
 .ph-del:disabled { opacity: 0.4; }
+
+/* Today header: team access code to share */
+.today-head { align-items: flex-end; gap: 16px; }
+.access-code { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--card); }
+.access-code b { font-size: 1.05rem; letter-spacing: 0.06em; }
+@media (max-width: 480px) { .access-code { width: 100%; } }

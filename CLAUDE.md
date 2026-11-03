@@ -17,7 +17,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 ## Stack
 - Next.js 15 App Router, TypeScript, React 19, plain CSS with tokens (`app/globals.css`).
 - Supabase project `sitegate` (ref `eqookosrjreinlogvzll`, ca-central-1): Postgres with RLS everywhere, private bucket `project-files` (paths `<project_id>/...`). Helper functions in the `private` schema.
-- Sign-in: name + one shared team access code. Each device signs in anonymously, then `redeem_access_code()` adds it to `private.team_members`, and team members count as members of every project (`private.is_member`). The code is stored only as a bcrypt hash; change it with `select private.set_access_code('NEW-CODE');` in the Supabase SQL editor. Requires Supabase → Authentication → Allow anonymous sign-ins.
+- Sign-in: name + one shared team access code. Each device signs in anonymously, then `redeem_access_code()` adds it to `private.team_members`, and team members count as members of every project (`private.is_member`). Sign-in checks a bcrypt hash; the code itself is also kept (migration 0006) so team members see it on the Today header with Copy and Share (`public.team_access_code()`, null for non-members). Change it with `select private.set_access_code('NEW-CODE');` in the Supabase SQL editor; never commit the code. Requires Supabase → Authentication → Allow anonymous sign-ins.
 - Vercel project `sitegate` (team `cascioli-contracting`), live at https://sitegate.vercel.app.
 - AI analysis: `app/api/analyze-sheet/route.ts` calls the Claude API (`ANTHROPIC_MODEL`, default `claude-sonnet-5-5`) with the sheet plus four quadrant crops and the PDF text layer, acting as the signed-in user.
 

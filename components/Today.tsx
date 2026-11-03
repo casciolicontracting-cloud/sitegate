@@ -2,7 +2,9 @@
 
 import type { ProjectStore } from '@/lib/useProject';
 import type { Nav } from './ProjectApp';
-import { fmtDate, GatePill, InspPill, Meter, TaskPill } from './ui';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { fmtDate, GatePill, InspPill, Meter, TaskPill, toast } from './ui';
 
 export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
   const { data, plan, engine } = store;
@@ -29,9 +31,12 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
 
   return (
     <div className="stack-lg">
-      <div className="stack">
-        <span className="label">{data.project.address || data.project.municipality || 'Project'}</span>
-        <h1>Today on site</h1>
+      <div className="row between today-head">
+        <div className="stack">
+          <span className="label">{data.project.address || data.project.municipality || 'Project'}</span>
+          <h1>Today on site</h1>
+        </div>
+        <AccessCode project={data.project.name} projectId={data.project.id} />
       </div>
 
       <div className="stats">
@@ -124,6 +129,39 @@ export function Today({ store, nav }: { store: ProjectStore; nav: Nav }) {
           {openQs.length > 0 && <button className="btn" onClick={() => nav.go('notes')}>{openQs.length} unanswered question{openQs.length === 1 ? '' : 's'}</button>}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The team access code, ready to copy or send to someone joining the project. */
+function AccessCode({ project, projectId }: { project: string; projectId: string }) {
+  const [code, setCode] = useState<string | null>(null);
+  useEffect(() => {
+    supabase().rpc('team_access_code').then(({ data }) => setCode(typeof data === 'string' && data ? data : null), () => setCode(null));
+  }, []);
+  if (!code) return null;
+  const link = `${window.location.origin}/projects/${projectId}`;
+  const message = `Join ${project} on SiteGate: ${link}\nEnter your name and the access code ${code}`;
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(code!); toast('Access code copied.'); } catch { toast(`Access code: ${code}`); }
+  }
+  async function share() {
+    if (navigator.share) {
+      try { await navigator.share({ title: `${project} on SiteGate`, text: message }); } catch { /* closed the share sheet */ }
+      return;
+    }
+    try { await navigator.clipboard.writeText(message); toast('Invite copied. Paste it into a text or email.'); } catch { toast(message); }
+  }
+
+  return (
+    <div className="access-code">
+      <span className="label">Access code</span>
+      <span className="row" style={{ gap: 8 }}>
+        <b className="mono">{code}</b>
+        <button className="btn btn-sm" onClick={copy}>Copy</button>
+        <button className="btn btn-sm btn-primary" onClick={share}>Share</button>
+      </span>
     </div>
   );
 }
