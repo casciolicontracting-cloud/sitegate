@@ -145,10 +145,9 @@ export function CodeBooks() {
     try {
       if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) throw new Error('Choose the Compendium PDF.');
       // Make sure it is the right volume before it becomes everyone's reference.
-      const text = await firstPagesText(file, 5);
-      if (!/2024 Building Code Compendium/i.test(text)) throw new Error(`${file.name} doesn't look like the 2024 Building Code Compendium.`);
-      const isVol2 = /Volume 2/i.test(text);
-      if ((vol === 2) !== isVol2) throw new Error(`${file.name} looks like Volume ${isVol2 ? 2 : 1}. Upload it in the Volume ${isVol2 ? 2 : 1} slot.`);
+      const found = compendiumVolume(await firstPagesText(file, 6));
+      if (!found) throw new Error(`${file.name} doesn't look like the 2024 Building Code Compendium.`);
+      if (found !== vol) throw new Error(`${file.name} looks like Volume ${found}. Upload it in the Volume ${found} slot.`);
       setBusy(`Uploading ${VOLUME_LABEL[vol]} (${Math.round(file.size / 1e6)} MB)…`);
       const { uploadFile } = await import('@/lib/supabase');
       await uploadFile(VOLUME_PATH[vol], new Blob([file], { type: 'application/pdf' }), REFERENCE_BUCKET);
@@ -188,6 +187,21 @@ export function CodeBooks() {
       {msg && <p className={`notice ${msg.bad ? 'bad' : 'info'}`}>{msg.text}</p>}
     </section>
   );
+}
+
+/**
+ * Which volume of the 2024 Compendium this is, from the text of its first pages, or null.
+ * The PDFs' text comes out with stray spaces ("20 2 4   Building Code Compendium  Volume   2"),
+ * so spacing is ignored. The volume is read from the cover ("Compendium Volume 2"), not any
+ * mention of a volume: Volume 2's commencement page refers to "the Preface of Volume 1".
+ */
+export function compendiumVolume(text: string): 1 | 2 | null {
+  const t = text.replace(/\s+/g, '').toLowerCase();
+  if (!t.includes('2024buildingcodecompendium')) return null;
+  const cover = t.match(/buildingcodecompendiumvolume([12])/);
+  if (cover) return cover[1] === '2' ? 2 : 1;
+  const any = t.match(/volume([12])/);
+  return any ? (any[1] === '2' ? 2 : 1) : null;
 }
 
 async function firstPagesText(file: File, n: number): Promise<string> {
