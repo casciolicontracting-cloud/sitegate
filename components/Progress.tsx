@@ -90,8 +90,8 @@ export function PhotosView({ store, nav }: { store: ProjectStore; nav: Nav }) {
   const [dates, setDates] = useState<Record<string, string>>({});
   const items = useMemo(() => (data && plan ? photoItems(plan, data) : []), [data, plan]);
 
-  // Task photos don't store a date, so read it from storage (one listing per task folder).
-  const folders = useMemo(() => [...new Set(items.filter((i) => i.kind === 'task').map((i) => i.path.slice(0, i.path.lastIndexOf('/'))))], [items]);
+  // Photos don't store a date, so read it from storage (one listing per task or deficiency folder).
+  const folders = useMemo(() => [...new Set(items.map((i) => i.path.slice(0, i.path.lastIndexOf('/'))))], [items]);
   useEffect(() => {
     let live = true;
     Promise.all(folders.map(async (f) => {
@@ -100,6 +100,15 @@ export function PhotosView({ store, nav }: { store: ProjectStore; nav: Nav }) {
     })).then((rows) => { if (live) setDates(Object.fromEntries(rows.flat().filter(([, at]) => !!at)) as Record<string, string>); });
     return () => { live = false; };
   }, [folders.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function del(i: PhotoItem) {
+    if (!window.confirm('Delete this photo? This can\'t be undone.')) return;
+    try {
+      await (i.kind === 'task' ? store.deleteTaskPhoto(i.key, i.path) : store.deleteDefPhoto(i.key, i.path));
+      setView(null);
+      toast('Photo deleted.');
+    } catch (e) { toastError(e); }
+  }
 
   if (!data || !plan) return null;
   const dated = items.map((i) => ({ ...i, at: i.at || dates[i.path] || null }))
@@ -152,7 +161,10 @@ export function PhotosView({ store, nav }: { store: ProjectStore; nav: Nav }) {
         );
       })}
 
-      {view && <SheetViewer path={view.path} title={`${view.title}${view.at ? ` · ${fmtDate(view.at)}` : ''}`} onClose={() => setView(null)} />}
+      {view && (
+        <SheetViewer path={view.path} title={`${view.title}${view.at ? ` · ${fmtDate(view.at)}` : ''}`} onClose={() => setView(null)}
+          actions={<button className="btn btn-sm btn-danger" onClick={() => void del(view)}>Delete</button>} />
+      )}
     </div>
   );
 }

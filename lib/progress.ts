@@ -84,9 +84,9 @@ export function photoItems(plan: Plan, data: ProjectBundle): PhotoItem[] {
     for (const path of data.tasks[t.key]?.photos || []) out.push({ path, phase: t.phase, kind: 'task', key: t.key, title: t.name, at: null });
   }
   for (const d of data.defs) {
-    if (d.photo_path && d.phase_key && plan.byPhase[d.phase_key]) {
-      out.push({ path: d.photo_path, phase: d.phase_key, kind: 'def', key: d.id, title: `Deficiency: ${d.title}`, at: d.created_at });
-    }
+    if (!d.phase_key || !plan.byPhase[d.phase_key]) continue;
+    const paths = [...new Set([...(d.photos || []), ...(d.photo_path ? [d.photo_path] : [])])];
+    for (const path of paths) out.push({ path, phase: d.phase_key, kind: 'def', key: d.id, title: `Deficiency: ${d.title}`, at: null });
   }
   return out;
 }

@@ -10,7 +10,7 @@ import { finalizeRooms, RoomsEditor } from './Rooms';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Contact, Deficiency, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
-import { fmtDate, InspPill, SheetViewer, StoredImage, toast, toastError } from './ui';
+import { fmtDate, InspPill, PhotoGrid, SheetViewer, StagedPhotos, StoredImage, toast, toastError } from './ui';
 
 // ---------------------------------------------------------------------------
 export function DrawingsView({ store, nav }: { store: ProjectStore; nav: Nav }) {
@@ -207,14 +207,20 @@ export function DeficienciesView({ store, nav }: { store: ProjectStore; nav: Nav
   const [trade, setTrade] = useState('');
   const [phase, setPhase] = useState('');
   const [due, setDue] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [logging, setLogging] = useState(false);
   if (!data || !plan) return null;
   const list = data.defs.filter((d) => filter === 'all' || d.status !== 'closed');
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !phase) return toast('Add a description and the phase it belongs to.', true);
-    await store.addDef({ title: title.trim(), trade: trade || null, phase_key: phase, due_on: due || null, status: 'open' }).catch(toastError);
-    setTitle(''); setDue('');
+    setLogging(true);
+    try {
+      const d = await store.addDef({ title: title.trim(), trade: trade || null, phase_key: phase, due_on: due || null, status: 'open' });
+      if (files.length) await store.addDefPhotos(d.id, files);
+      setTitle(''); setDue(''); setFiles([]);
+    } catch (err) { toastError(err); } finally { setLogging(false); }
   }
   const setStatus = (d: Deficiency, status: Deficiency['status']) => store.updateDef(d.id, {
     status, closed_at: status === 'closed' ? new Date().toISOString() : null, closed_by: status === 'closed' ? userId : null,
@@ -237,7 +243,8 @@ export function DeficienciesView({ store, nav }: { store: ProjectStore; nav: Nav
           <label className="field"><span>Trade</span><select id="d-trade" value={trade} onChange={(e) => setTrade(e.target.value)}><option value="">—</option>{TRADES.map((t) => <option key={t}>{t}</option>)}</select></label>
           <label className="field"><span>Due</span><input id="d-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
         </div>
-        <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>Log deficiency</button>
+        <div className="field"><span>Photos</span><StagedPhotos files={files} onChange={setFiles} /></div>
+        <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={logging}>{logging ? (files.length ? 'Uploading photos…' : 'Logging…') : 'Log deficiency'}</button>
       </form>
       <div className="list">
         {list.length === 0 && <div className="empty">{filter === 'open' ? 'No open deficiencies.' : 'None logged yet.'}</div>}
@@ -250,6 +257,8 @@ export function DeficienciesView({ store, nav }: { store: ProjectStore; nav: Nav
                 {[d.phase_key && plan.byPhase[d.phase_key]?.name, d.trade, d.due_on && `due ${fmtDate(d.due_on)}`, `logged ${fmtDate(d.created_at)}`].filter(Boolean).join(' · ')}
                 {d.task_key && plan.tasks[d.task_key] && <> · <button className="btn-link" onClick={() => nav.openTask(d.task_key!)}>{plan.tasks[d.task_key].name}</button></>}
               </span>
+              <PhotoGrid small paths={d.photos || []} title={`Deficiency: ${d.title}`}
+                onAdd={(f) => store.addDefPhotos(d.id, f)} onDelete={(p) => store.deleteDefPhoto(d.id, p)} />
               <div className="row">
                 {d.status === 'open' && <button className="btn btn-sm" onClick={() => setStatus(d, 'fixed')}>Mark fixed</button>}
                 {d.status === 'fixed' && <><button className="btn btn-sm btn-ok" onClick={() => setStatus(d, 'closed')}>Verify and close</button><button className="btn btn-sm" onClick={() => setStatus(d, 'open')}>Not fixed</button></>}

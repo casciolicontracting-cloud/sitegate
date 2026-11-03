@@ -4,12 +4,11 @@ import { useEffect, useState } from 'react';
 import { codeRef, OBC_EDITION } from '@/lib/codes';
 import { citedClauses, taskClauseIds } from '@/lib/codeRefs';
 import { TOPIC_LABEL, type Box, type PlanCheck, type Topic } from '@/lib/template';
-import { newId, uploadFile } from '@/lib/supabase';
 import type { ProjectStore } from '@/lib/useProject';
 import type { Inspection, InspStatus, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
 import { ClauseChips, ClauseList, ClauseViewer } from './CodeRefs';
-import { DrawingCrop, fmtDate, InspPill, SheetViewer, StoredImage, TaskPill, toast, toastError, today } from './ui';
+import { DrawingCrop, fmtDate, InspPill, PhotoGrid, SheetViewer, StagedPhotos, TaskPill, toast, toastError, today } from './ui';
 
 function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
@@ -63,7 +62,8 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const [noteText, setNoteText] = useState('');
   const [noteKind, setNoteKind] = useState<'note' | 'question'>('note');
   const [defTitle, setDefTitle] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [defFiles, setDefFiles] = useState<File[]>([]);
+  const [logging, setLogging] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [clause, setClause] = useState<string | null>(null);
   if (!data || !plan || !engine) return null;
@@ -92,15 +92,6 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
     store.saveTask(taskKey, { checks: next, started_at: st?.started_at || new Date().toISOString() }).catch(toastError);
   };
 
-  async function addPhoto(file: File) {
-    setBusy(true);
-    try {
-      const path = await uploadFile(`${data!.project.id}/photos/${taskKey}/${newId()}.jpg`, file);
-      await store.saveTask(taskKey, { photos: [...(st?.photos || []), path], started_at: st?.started_at || new Date().toISOString() });
-      toast('Photo added.');
-    } catch (e) { toastError(e); } finally { setBusy(false); }
-  }
-
   async function complete() {
     setCompleting(true);
     try {
@@ -124,8 +115,12 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   async function addDef(e: React.FormEvent) {
     e.preventDefault();
     if (!defTitle.trim()) return;
-    await store.addDef({ task_key: taskKey, phase_key: t.phase, trade: t.trade, title: defTitle.trim(), status: 'open' }).catch(toastError);
-    setDefTitle('');
+    setLogging(true);
+    try {
+      const d = await store.addDef({ task_key: taskKey, phase_key: t.phase, trade: t.trade, title: defTitle.trim(), status: 'open' });
+      if (defFiles.length) await store.addDefPhotos(d.id, defFiles);
+      setDefTitle(''); setDefFiles([]);
+    } catch (err) { toastError(err); } finally { setLogging(false); }
   }
 
   const checkRow = (c: PlanCheck) => (
@@ -232,14 +227,8 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
 
       <section>
         <div className="section-head" style={{ margin: 0 }}><h3>Photos</h3><span className="small muted">Optional</span></div>
-        {(st?.photos || []).length > 0 && (
-          <div className="photos">{st!.photos.map((p) => <StoredImage key={p} path={p} alt="Site photo" />)}</div>
-        )}
-        <label className="btn" style={{ alignSelf: 'flex-start' }} aria-disabled={busy}>
-          {busy ? 'Uploading…' : 'Add photo'}
-          <input id={`photo-${taskKey}`} type="file" accept="image/*" capture="environment" hidden disabled={busy}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) addPhoto(f); e.target.value = ''; }} />
-        </label>
+        <PhotoGrid paths={st?.photos || []} title={t.name}
+          onAdd={(files) => store.addTaskPhotos(taskKey, files)} onDelete={(p) => store.deleteTaskPhoto(taskKey, p)} />
       </section>
 
       <section>
@@ -261,14 +250,21 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
       <section>
         <h3>Deficiencies</h3>
         {defs.map((d) => (
-          <div key={d.id} className="row between ref" style={{ flexDirection: 'row' }}>
-            <span className="grow">{d.title}</span>
-            <span className={`pill ${d.status === 'closed' ? 'ok' : d.status === 'fixed' ? 'warn' : 'bad'}`}>{d.status === 'open' ? 'Open' : d.status === 'fixed' ? 'Fixed, to verify' : 'Closed'}</span>
+          <div key={d.id} className="ref">
+            <div className="row between">
+              <span className="grow">{d.title}</span>
+              <span className={`pill ${d.status === 'closed' ? 'ok' : d.status === 'fixed' ? 'warn' : 'bad'}`}>{d.status === 'open' ? 'Open' : d.status === 'fixed' ? 'Fixed, to verify' : 'Closed'}</span>
+            </div>
+            <PhotoGrid small paths={d.photos || []} title={`Deficiency: ${d.title}`}
+              onAdd={(files) => store.addDefPhotos(d.id, files)} onDelete={(p) => store.deleteDefPhoto(d.id, p)} />
           </div>
         ))}
-        <form className="row" onSubmit={addDef}>
-          <input id={`def-${taskKey}`} type="text" className="grow" style={{ flex: 1, minWidth: 180 }} placeholder="Describe a deficiency" value={defTitle} onChange={(e) => setDefTitle(e.target.value)} />
-          <button className="btn">Log deficiency</button>
+        <form className="stack" style={{ gap: 8 }} onSubmit={addDef}>
+          <div className="row">
+            <input id={`def-${taskKey}`} type="text" className="grow" style={{ flex: 1, minWidth: 180 }} placeholder="Describe a deficiency" value={defTitle} onChange={(e) => setDefTitle(e.target.value)} />
+            <button className="btn" disabled={logging}>{logging ? 'Logging…' : 'Log deficiency'}</button>
+          </div>
+          <StagedPhotos files={defFiles} onChange={setDefFiles} />
         </form>
       </section>
 

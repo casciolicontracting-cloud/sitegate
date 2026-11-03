@@ -101,7 +101,7 @@ export function DrawingCrop({ path, box, label, onOpen }: { path: string | null;
   );
 }
 
-export function SheetViewer({ path, title, focus, onClose }: { path: string | null; title: string; focus?: Box; onClose: () => void }) {
+export function SheetViewer({ path, title, focus, onClose, actions }: { path: string | null; title: string; focus?: Box; onClose: () => void; actions?: React.ReactNode }) {
   const url = useFileUrl(path);
   const fb = focus ? padBox(focus) : null;
   const [zoom, setZoom] = useState(fb ? Math.min(6, Math.max(1, 0.9 / Math.max(fb[2] - fb[0], fb[3] - fb[1]))) : 1);
@@ -125,6 +125,7 @@ export function SheetViewer({ path, title, focus, onClose }: { path: string | nu
         <button className="btn btn-sm" onClick={() => setZoom((z) => Math.max(1, z / 1.5))} aria-label="Zoom out">−</button>
         <span className="num small">{Math.round(zoom * 100)}%</span>
         <button className="btn btn-sm" onClick={() => setZoom((z) => Math.min(6, z * 1.5))} aria-label="Zoom in">+</button>
+        {actions}
         <button className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
       <div className="viewer-img" ref={scroller}>
@@ -144,4 +145,90 @@ export function fmtDate(s: string | null | undefined) {
 export function today() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ---- site photos --------------------------------------------------------
+
+/** "Take photo" opens the camera; "From gallery" picks one or more saved photos. */
+export function PhotoButtons({ busy, onFiles, small }: { busy: boolean; onFiles: (files: File[]) => void; small?: boolean }) {
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (files.length) onFiles(files);
+  };
+  const cls = `btn${small ? ' btn-sm' : ''}`;
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <label className={cls} aria-disabled={busy}>
+        Take photo
+        <input type="file" accept="image/*" capture="environment" hidden disabled={busy} onChange={pick} />
+      </label>
+      <label className={cls} aria-disabled={busy}>
+        From gallery
+        <input type="file" accept="image/*" multiple hidden disabled={busy} onChange={pick} />
+      </label>
+    </div>
+  );
+}
+
+/** Uploaded photos with full-screen view, delete, and add from camera or gallery. */
+export function PhotoGrid({ paths, onAdd, onDelete, title = 'Photo', small }: {
+  paths: string[]; onAdd: (files: File[]) => Promise<void>; onDelete: (path: string) => Promise<void>; title?: string; small?: boolean;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [view, setView] = useState<string | null>(null);
+  async function add(files: File[]) {
+    setBusy(`Uploading ${files.length} photo${files.length === 1 ? '' : 's'}…`);
+    try { await onAdd(files); toast(files.length === 1 ? 'Photo added.' : `${files.length} photos added.`); } catch (e) { toastError(e); } finally { setBusy(null); }
+  }
+  async function del(path: string) {
+    if (!window.confirm('Delete this photo? This can\'t be undone.')) return;
+    setBusy('Deleting…');
+    try { await onDelete(path); setView(null); toast('Photo deleted.'); } catch (e) { toastError(e); } finally { setBusy(null); }
+  }
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {paths.length > 0 && (
+        <div className={`photos${small ? ' photos-sm' : ''}`}>
+          {paths.map((p) => (
+            <span key={p} className="ph">
+              <button type="button" className="ph-open" onClick={() => setView(p)} aria-label={`Open ${title.toLowerCase()}`}><StoredImage path={p} alt={title} /></button>
+              <button type="button" className="ph-del" onClick={() => del(p)} disabled={!!busy} aria-label="Delete photo">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {busy ? <span className="small muted">{busy}</span> : <PhotoButtons busy={false} onFiles={add} small={small} />}
+      {view && (
+        <SheetViewer path={view} title={title} onClose={() => setView(null)}
+          actions={<button className="btn btn-sm btn-danger" onClick={() => del(view)}>Delete</button>} />
+      )}
+    </div>
+  );
+}
+
+/** Photos picked before the record they belong to exists (a new deficiency). */
+export function StagedPhotos({ files, onChange }: { files: File[]; onChange: (files: File[]) => void }) {
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const u = files.map((f) => URL.createObjectURL(f));
+    setUrls(u);
+    return () => u.forEach((x) => URL.revokeObjectURL(x));
+  }, [files]);
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {files.length > 0 && (
+        <div className="photos photos-sm">
+          {urls.map((u, i) => (
+            <span key={u} className="ph">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={u} alt="Photo to upload" />
+              <button type="button" className="ph-del" onClick={() => onChange(files.filter((_, j) => j !== i))} aria-label="Remove photo">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <PhotoButtons busy={false} small onFiles={(f) => onChange([...files, ...f])} />
+    </div>
+  );
 }

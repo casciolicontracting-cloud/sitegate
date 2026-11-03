@@ -125,7 +125,8 @@ export interface Deficiency {
   trade: string | null;
   status: 'open' | 'fixed' | 'closed';
   due_on: string | null;
-  photo_path: string | null;
+  photo_path: string | null; // older rows; copied into photos by migration 0005
+  photos: string[];
   created_by: string | null;
   created_at: string;
   closed_by: string | null;

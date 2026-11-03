@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { supabase } from './supabase';
+import { removeFiles, supabase, uploadPhotos } from './supabase';
 import { buildPlan, type Plan } from './template';
 import { Engine } from './status';
 import type { Contact, Deficiency, Inspection, Note, Profile, Project, ProjectBundle, Sheet, TaskState } from './types';
@@ -24,8 +24,13 @@ export interface ProjectStore {
   saveInsp: (key: string, patch: Partial<Inspection>) => Promise<void>;
   addNote: (n: Partial<Note>) => Promise<void>;
   updateNote: (id: string, patch: Partial<Note>) => Promise<void>;
-  addDef: (d: Partial<Deficiency>) => Promise<void>;
+  addDef: (d: Partial<Deficiency>) => Promise<Deficiency>;
   updateDef: (id: string, patch: Partial<Deficiency>) => Promise<void>;
+  /** Photos from the camera or gallery, compressed and uploaded. */
+  addTaskPhotos: (key: string, files: File[]) => Promise<void>;
+  deleteTaskPhoto: (key: string, path: string) => Promise<void>;
+  addDefPhotos: (id: string, files: File[]) => Promise<void>;
+  deleteDefPhoto: (id: string, path: string) => Promise<void>;
   saveContact: (c: Partial<Contact>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
   log: (action: string, detail?: Record<string, unknown>) => void;
@@ -180,12 +185,37 @@ export function useProject(projectId: string): ProjectStore {
       const { data: row, error } = await supabase().from('deficiencies').insert({ ...x, project_id: projectId }).select('*').single();
       fail(error);
       patch((d) => ({ ...d, defs: [row as Deficiency, ...d.defs] }));
+      return row as Deficiency;
     },
 
     async updateDef(id, p) {
       patch((d) => ({ ...d, defs: d.defs.map((x) => (x.id === id ? { ...x, ...p } : x)) }));
       const { error } = await supabase().from('deficiencies').update(p).eq('id', id);
       fail(error);
+    },
+
+    async addTaskPhotos(key, files) {
+      const paths = await uploadPhotos(`${projectId}/photos/${key}`, files);
+      const st = dataRef.current?.tasks[key];
+      await store.saveTask(key, { photos: [...(st?.photos || []), ...paths], started_at: st?.started_at || new Date().toISOString() });
+    },
+
+    async deleteTaskPhoto(key, path) {
+      await store.saveTask(key, { photos: (dataRef.current?.tasks[key]?.photos || []).filter((p) => p !== path) });
+      await removeFiles([path]);
+    },
+
+    async addDefPhotos(id, files) {
+      const paths = await uploadPhotos(`${projectId}/deficiencies/${id}`, files);
+      const d = dataRef.current?.defs.find((x) => x.id === id);
+      await store.updateDef(id, { photos: [...(d?.photos || []), ...paths] });
+    },
+
+    async deleteDefPhoto(id, path) {
+      const d = dataRef.current?.defs.find((x) => x.id === id);
+      // Clear the old single-photo column too, so a deleted photo never comes back.
+      await store.updateDef(id, { photos: (d?.photos || []).filter((p) => p !== path), ...(d?.photo_path === path ? { photo_path: null } : {}) });
+      await removeFiles([path]);
     },
 
     async saveContact(c) {
