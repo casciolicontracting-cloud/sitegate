@@ -88,7 +88,7 @@ main { padding-block: 20px 64px; }
 .btn-link { background: none; border: 0; padding: 0; color: var(--blue); cursor: pointer; font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field > span { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
-input[type='text'], input[type='email'], input[type='password'], input[type='date'], input[type='number'], input[type='tel'], select, textarea {
+input[type='text'], input[type='email'], input[type='password'], input[type='date'], input[type='number'], input[type='tel'], input[type='url'], select, textarea {
   width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
 }
 textarea { min-height: 72px; resize: vertical; }
@@ -329,3 +329,7 @@ button.ref.clause:hover { border-color: color-mix(in srgb, var(--accent) 40%, va
 .access-code { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--card); }
 .access-code b { font-size: 1.05rem; letter-spacing: 0.06em; }
 @media (max-width: 480px) { .access-code { width: 100%; } }
+
+/* Rooms tab */
+.chip.chip-add { cursor: pointer; font-size: 0.85rem; padding: 6px 12px; border-color: var(--line); background: var(--surface); color: var(--ink); }
+.chip.chip-add:hover { border-color: var(--muted); }

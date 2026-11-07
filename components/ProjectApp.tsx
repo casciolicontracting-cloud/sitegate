@@ -9,13 +9,14 @@ import { FlowChart, PhaseView } from './Flow';
 import { InspPanel, TaskPanel } from './TaskPanel';
 import { ContactsView, DeficienciesView, DrawingsView, InspectionsView, NotesView } from './Registers';
 import { GanttView, PhotosView, TimelineView } from './Progress';
+import { RoomsView } from './RoomsTab';
 import { Mark } from './ui';
 
-export type Tab = 'today' | 'flow' | 'gantt' | 'timeline' | 'photos' | 'drawings' | 'inspections' | 'deficiencies' | 'notes' | 'contacts';
+export type Tab = 'today' | 'flow' | 'gantt' | 'timeline' | 'photos' | 'rooms' | 'drawings' | 'inspections' | 'deficiencies' | 'notes' | 'contacts';
 
 export interface Nav {
   tab: Tab;
-  phase: string | null;
+  phase: string | null; // sub-selection: phase id (Plan), trade (Deficiencies) or room id (Rooms)
   go: (tab: Tab, phase?: string | null) => void;
   openTask: (key: string) => void;
   openInsp: (key: string) => void;
@@ -23,16 +24,16 @@ export interface Nav {
 
 const TABS: Array<[Tab, string]> = [
   ['today', 'Today'], ['flow', 'Plan'], ['gantt', 'Gantt chart'], ['timeline', 'Timeline'], ['photos', 'Photos'],
-  ['drawings', 'Drawings'], ['inspections', 'Inspections'],
+  ['rooms', 'Rooms'], ['drawings', 'Drawings'], ['inspections', 'Inspections'],
   ['deficiencies', 'Deficiencies'], ['notes', 'Notes & questions'], ['contacts', 'Contacts'],
 ];
 
 export function ProjectApp({ id }: { id: string }) {
   const store = useProject(id);
   // Start from the URL hash (this only renders in the browser, after sign-in), so a refresh or
-  // shared link lands in the same place: #flow-phase-<phase id>, #deficiencies-trade-<trade>.
+  // shared link lands in the same place: #flow-phase-<phase id>, #deficiencies-trade-<trade>, #rooms-room-<room id>.
   const [start] = useState(() => {
-    const [t, sub] = window.location.hash.slice(1).split(/-(?:phase|trade)-/);
+    const [t, sub] = window.location.hash.slice(1).split(/-(?:phase|trade|room)-/);
     return TABS.some(([k]) => k === t) ? { tab: t as Tab, sub: sub ? decodeURIComponent(sub) : null } : { tab: 'today' as Tab, sub: null };
   });
   const [tab, setTab] = useState<Tab>(start.tab);
@@ -40,7 +41,7 @@ export function ProjectApp({ id }: { id: string }) {
   const [panel, setPanel] = useState<{ kind: 'task' | 'insp'; key: string } | null>(null);
 
   useEffect(() => {
-    const h = !phase ? tab : tab === 'flow' ? `${tab}-phase-${phase}` : tab === 'deficiencies' ? `${tab}-trade-${encodeURIComponent(phase)}` : tab;
+    const h = !phase ? tab : tab === 'flow' ? `${tab}-phase-${phase}` : tab === 'deficiencies' ? `${tab}-trade-${encodeURIComponent(phase)}` : tab === 'rooms' ? `${tab}-room-${phase}` : tab;
     history.replaceState(null, '', `#${h}`);
   }, [tab, phase]);
 
@@ -89,6 +90,7 @@ export function ProjectApp({ id }: { id: string }) {
             {tab === 'gantt' && <GanttView store={store} nav={nav} />}
             {tab === 'timeline' && <TimelineView store={store} nav={nav} />}
             {tab === 'photos' && <PhotosView store={store} nav={nav} />}
+            {tab === 'rooms' && <RoomsView store={store} nav={nav} />}
             {tab === 'drawings' && <DrawingsView store={store} nav={nav} />}
             {tab === 'inspections' && <InspectionsView store={store} nav={nav} />}
             {tab === 'deficiencies' && <DeficienciesView store={store} nav={nav} />}

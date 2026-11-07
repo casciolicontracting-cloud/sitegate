@@ -12,6 +12,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 - Rooms: Claude labels rooms on floor plans (name, level, kind, box) and drawing views on every sheet (topic, label, box) into `sheets.rooms` / `sheets.regions`. Confirmed rooms live in `projects.features.rooms`; edit them in the review step or on the Drawings tab.
 - Inspections (municipal, ESA, TSSA, engineer, energy advisor), recorded per phase; they count toward the gate but never lock work.
 - Verification records who, when, and each linked sheet's revision; a later revision flags the task for recheck.
+- Rooms tab (`components/RoomsTab.tsx`, rules in `lib/rooms.ts`, migration 0007): each room (`rooms`) holds its selections and products (`room_items`: category, maker, model, colour, supplier, quantity, trade, status To choose → Selected → Ordered → On site → Installed, web link, notes), with manuals / install guides / spec sheets / warranties (`room_items.documents` jsonb) and photos (`room_items.photos`). Files go in `project-files` under `<project_id>/rooms/<room>/<item>/docs|photos`. Rooms are suggested from the confirmed floor-plan rooms (linked by `rooms.plan_room`) or the house features; quick-add starter items per room type add empty items only. Task drawers show "Selections" for the rooms they touch (`productsForTask`). A note beside manuals says manufacturer instructions can be stricter than code.
 - Progress tabs (`components/Progress.tsx`, rules in `lib/progress.ts`): Timeline (everything completed, grouped by phase or latest first), Photos (task and deficiency photos by phase), Gantt chart (planned phase dates vs actual work). Planned dates live in `projects.schedule` (migration 0004); phases without their own dates follow `TYPICAL_DAYS` from the project start and move when an earlier phase moves.
 
 ## Stack
@@ -27,7 +28,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 - `lib/codes.ts` — section-level reference library (OBC sections, ESA, TSSA, Tarion, HCRA, OHSA).
 - `lib/obc.ts` (generated from `tools/obc-spec.js`) — 2024 OBC clause references per task, inspection and checklist line: number, heading, Compendium volume + page, and our own plain-language note. `lib/obc-pages.json` maps every article in Parts 7, 8, 9, 12 and Div. C Part 1 to its page so clauses cited on drawings open too. `lib/codeRefs.ts` has the lookups; `components/CodeRefs.tsx` the UI, page viewer and the Code reference upload panel.
 - `lib/useProject.ts` — loads and writes project data.
-- `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`, `Progress` (Timeline, Photos, Gantt chart).
+- `components/` — `Setup` (upload, read, review), `Flow`, `TaskPanel`, `Registers`, `Today`, `Progress` (Timeline, Photos, Gantt chart), `RoomsTab` (room selections; `Rooms.tsx` is the floor-plan room editor).
 - `supabase/migrations/` — schema; add a migration for every schema change.
 
 ## Rules
@@ -41,7 +42,7 @@ A project starts with the drawing set. Each sheet is read by Claude (number, tit
 Deployed and building, but not yet tested end to end with a real project. First priorities:
 1. Run locally (`npm install`, `.env.local` from `.env.example`) and test the full flow: sign up, create a project, upload a multi-page PDF, read sheets, review, build plan, tick checks, add a photo, verify, log and close a deficiency, record an inspection, pass a gate, revise a sheet. Fix what breaks.
 2. Known risks: pdf.js worker under Next.js; Vercel's 4.5 MB body limit on `/api/analyze-sheet`; canvas use of signed-URL images; rendering large sets on phones.
-3. Add ESLint, typecheck in CI, and unit tests for `lib/status.ts` and `lib/template.ts`.
+3. ESLint (`npm run lint`), typecheck and Vitest (`npm test`) run in CI (`.github/workflows/ci.yml`). Still to add: unit tests for `lib/status.ts` and `lib/template.ts` (`lib/rooms.ts` has them).
 
 ## Roadmap (confirm with the owner before starting each)
 1. Invite trades and inspectors by email with roles (owner, supervisor, trade, viewer exist).

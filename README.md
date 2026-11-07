@@ -36,13 +36,15 @@ checklists, Ontario Building Code references, inspections, deficiencies and trad
 | `components/Flow.tsx` | Flow chart of phases and the per-phase sequence with gate |
 | `components/TaskPanel.tsx` | Task detail (drawings, checklist, photos, codes, notes, deficiencies, sign-off) and inspection record |
 | `components/Registers.tsx` | Drawings, inspections, deficiencies, notes/questions, contacts |
+| `components/RoomsTab.tsx`, `lib/rooms.ts` | Rooms tab: selections and products per room, with manuals, spec sheets and photos |
 | `supabase/migrations/` | Database schema, row-level security and storage policies |
 
 ## Data model (Supabase)
 
 `projects`, `project_members` (owner / supervisor / trade / viewer), `sheets`, `task_states`
 (keyed by template task key), `inspections` (keyed by template inspection key), `contacts`,
-`notes` (notes and designer questions), `deficiencies`, `activity` (change log), `profiles`.
+`notes` (notes and designer questions), `deficiencies`, `rooms` and `room_items` (selections per room, with
+documents and photos), `activity` (change log), `profiles`.
 Files live in the private `project-files` bucket under `<project_id>/…`. Every table has RLS:
 only project members can read or write a project's data.
 
@@ -70,6 +72,7 @@ In Supabase → Authentication, turn on **Allow anonymous sign-ins**. Change the
 npm install
 cp .env.example .env.local   # fill in values
 npm run dev
+npm run typecheck && npm run lint && npm test
 ```
 
 ## Important limits of this beta

@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { removeFiles, supabase, uploadPhotos } from './supabase';
+import { compressPhoto, newId, removeFiles, supabase, uploadFile, uploadPhotos } from './supabase';
+import { docFileName, itemFolder, nextSort, type DocKind, type RoomItem, type SelRoom, type Starter } from './rooms';
 import { buildPlan, type Plan } from './template';
 import { Engine } from './status';
 import type { Contact, Deficiency, Inspection, Note, Profile, Project, ProjectBundle, Sheet, TaskState } from './types';
@@ -33,6 +34,17 @@ export interface ProjectStore {
   deleteDefPhoto: (id: string, path: string) => Promise<void>;
   saveContact: (c: Partial<Contact>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
+  // Rooms tab: rooms, their selections / products, manuals and photos.
+  saveRoom: (r: Partial<SelRoom>) => Promise<SelRoom>;
+  deleteRoom: (id: string) => Promise<void>;
+  saveItem: (i: Partial<RoomItem> & { room_id: string }) => Promise<RoomItem>;
+  /** Empty items from starter suggestions; the user fills them in. */
+  addStarterItems: (roomId: string, starters: Starter[]) => Promise<void>;
+  deleteItem: (id: string) => Promise<void>;
+  addItemDocs: (id: string, files: File[], kind: DocKind) => Promise<void>;
+  deleteItemDoc: (id: string, path: string) => Promise<void>;
+  addItemPhotos: (id: string, files: File[]) => Promise<void>;
+  deleteItemPhoto: (id: string, path: string) => Promise<void>;
   log: (action: string, detail?: Record<string, unknown>) => void;
 }
 
@@ -53,7 +65,7 @@ export function useProject(projectId: string): ProjectStore {
     try {
       const { data: auth } = await db.auth.getUser();
       setUserId(auth.user?.id || null);
-      const [p, sh, ts, ins, co, no, de, prof] = await Promise.all([
+      const [p, sh, ts, ins, co, no, de, prof, rm, ri] = await Promise.all([
         db.from('projects').select('*').eq('id', projectId).single(),
         db.from('sheets').select('*').eq('project_id', projectId).order('sort'),
         db.from('task_states').select('*').eq('project_id', projectId),
@@ -63,6 +75,8 @@ export function useProject(projectId: string): ProjectStore {
         db.from('deficiencies').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
         // Team members can see every profile; row-level security limits this to people they work with.
         db.from('profiles').select('id, full_name, company'),
+        db.from('rooms').select('*').eq('project_id', projectId).order('sort'),
+        db.from('room_items').select('*').eq('project_id', projectId).order('sort'),
       ]);
       fail(p.error);
       setData({
@@ -73,6 +87,8 @@ export function useProject(projectId: string): ProjectStore {
         contacts: (co.data || []) as Contact[],
         notes: (no.data || []) as Note[],
         defs: (de.data || []) as Deficiency[],
+        rooms: (rm.data || []) as SelRoom[],
+        roomItems: (ri.data || []) as RoomItem[],
         profiles: Object.fromEntries(((prof.data || []) as Profile[]).map((x) => [x.id, x])),
       });
       setError(null);
@@ -231,6 +247,96 @@ export function useProject(projectId: string): ProjectStore {
       patch((d) => ({ ...d, contacts: d.contacts.filter((x) => x.id !== id) }));
       const { error } = await supabase().from('contacts').delete().eq('id', id);
       fail(error);
+    },
+
+    async saveRoom(r) {
+      const rooms = dataRef.current?.rooms || [];
+      const db = supabase().from('rooms');
+      const { id, ...rest } = r;
+      const { data: saved, error } = id && rooms.some((x) => x.id === id)
+        ? await db.update(rest).eq('id', id).select('*').single()
+        : await db.insert({ ...r, project_id: projectId, sort: r.sort ?? nextSort(rooms) }).select('*').single();
+      fail(error);
+      const room = saved as SelRoom;
+      patch((d) => ({ ...d, rooms: d.rooms.some((x) => x.id === room.id) ? d.rooms.map((x) => (x.id === room.id ? room : x)) : [...d.rooms, room] }));
+      return room;
+    },
+
+    async deleteRoom(id) {
+      const items = (dataRef.current?.roomItems || []).filter((i) => i.room_id === id);
+      const paths = items.flatMap((i) => [...(i.documents || []).map((x) => x.path), ...(i.photos || [])]);
+      const { error } = await supabase().from('rooms').delete().eq('id', id);
+      fail(error);
+      patch((d) => ({ ...d, rooms: d.rooms.filter((x) => x.id !== id), roomItems: d.roomItems.filter((i) => i.room_id !== id) }));
+      await removeFiles(paths);
+    },
+
+    async saveItem(i) {
+      const all = dataRef.current?.roomItems || [];
+      const db = supabase().from('room_items');
+      const { id, ...rest } = i;
+      const { data: saved, error } = id && all.some((x) => x.id === id)
+        ? await db.update(rest).eq('id', id).select('*').single()
+        : await db.insert({ ...i, project_id: projectId, sort: i.sort ?? nextSort(all.filter((x) => x.room_id === i.room_id)) }).select('*').single();
+      fail(error);
+      const item = saved as RoomItem;
+      patch((d) => ({ ...d, roomItems: d.roomItems.some((x) => x.id === item.id) ? d.roomItems.map((x) => (x.id === item.id ? item : x)) : [...d.roomItems, item] }));
+      return item;
+    },
+
+    async addStarterItems(roomId, starters) {
+      if (!starters.length) return;
+      let sort = nextSort((dataRef.current?.roomItems || []).filter((x) => x.room_id === roomId));
+      const rows = starters.map((x) => ({ room_id: roomId, project_id: projectId, category: x.category, name: x.name, sort: sort++ }));
+      const { data: saved, error } = await supabase().from('room_items').insert(rows).select('*');
+      fail(error);
+      patch((d) => ({ ...d, roomItems: [...d.roomItems, ...((saved || []) as RoomItem[])] }));
+    },
+
+    async deleteItem(id) {
+      const it = dataRef.current?.roomItems.find((x) => x.id === id);
+      const { error } = await supabase().from('room_items').delete().eq('id', id);
+      fail(error);
+      patch((d) => ({ ...d, roomItems: d.roomItems.filter((x) => x.id !== id) }));
+      if (it) await removeFiles([...(it.documents || []).map((x) => x.path), ...(it.photos || [])]);
+    },
+
+    async addItemDocs(id, files, kind) {
+      const it = dataRef.current?.roomItems.find((x) => x.id === id);
+      if (!it) return;
+      const folder = `${itemFolder(projectId, it.room_id, id)}/docs`;
+      const added: RoomItem['documents'] = [];
+      for (const f of files) {
+        const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+        if (isPdf && f.size > 25 * 1024 * 1024) throw new Error(`${f.name} is over 25 MB. Save a smaller copy, or add the maker's web link instead.`);
+        const blob = isPdf ? new Blob([f], { type: 'application/pdf' }) : await compressPhoto(f, 2400);
+        const name = isPdf ? docFileName(f.name, newId()) : docFileName(f.name.replace(/\.[^.]*$/, '') + '.jpg', newId());
+        added.push({ path: await uploadFile(`${folder}/${name}`, blob), name: f.name, kind });
+      }
+      const cur = dataRef.current?.roomItems.find((x) => x.id === id) || it;
+      await store.saveItem({ id, room_id: it.room_id, documents: [...(cur.documents || []), ...added] });
+    },
+
+    async deleteItemDoc(id, path) {
+      const it = dataRef.current?.roomItems.find((x) => x.id === id);
+      if (!it) return;
+      await store.saveItem({ id, room_id: it.room_id, documents: (it.documents || []).filter((x) => x.path !== path) });
+      await removeFiles([path]);
+    },
+
+    async addItemPhotos(id, files) {
+      const it = dataRef.current?.roomItems.find((x) => x.id === id);
+      if (!it) return;
+      const paths = await uploadPhotos(`${itemFolder(projectId, it.room_id, id)}/photos`, files);
+      const cur = dataRef.current?.roomItems.find((x) => x.id === id) || it;
+      await store.saveItem({ id, room_id: it.room_id, photos: [...(cur.photos || []), ...paths] });
+    },
+
+    async deleteItemPhoto(id, path) {
+      const it = dataRef.current?.roomItems.find((x) => x.id === id);
+      if (!it) return;
+      await store.saveItem({ id, room_id: it.room_id, photos: (it.photos || []).filter((p) => p !== path) });
+      await removeFiles([path]);
     },
   };
   return store;

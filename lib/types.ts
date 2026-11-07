@@ -1,5 +1,6 @@
 import type { Box, Features, RoomKind, Topic } from './template';
 import type { Schedule } from './progress';
+import type { RoomItem, SelRoom } from './rooms';
 
 export type Stage = 'drawings' | 'review' | 'active';
 
@@ -147,5 +148,7 @@ export interface ProjectBundle {
   contacts: Contact[];
   notes: Note[];
   defs: Deficiency[];
+  rooms: SelRoom[]; // Rooms tab (migration 0007)
+  roomItems: RoomItem[];
   profiles: Record<string, Profile>;
 }

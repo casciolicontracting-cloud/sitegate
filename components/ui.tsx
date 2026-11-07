@@ -232,3 +232,29 @@ export function StagedPhotos({ files, onChange }: { files: File[]; onChange: (fi
     </div>
   );
 }
+
+// ---- side drawer (task, inspection, room item) ---------------------------
+export function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill?: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = ''; };
+  }, [onClose]);
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={title}>
+        <div className="drawer-head">
+          <div className="grow stack" style={{ gap: 4 }}>
+            <span className="label">{sub}</span>
+            <h2>{title}</h2>
+            {pill && <div>{pill}</div>}
+          </div>
+          <button className="btn btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <div className="drawer-body">{children}</div>
+      </aside>
+    </>
+  );
+}

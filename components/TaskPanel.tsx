@@ -8,32 +8,9 @@ import type { ProjectStore } from '@/lib/useProject';
 import type { Inspection, InspStatus, Sheet } from '@/lib/types';
 import type { Nav } from './ProjectApp';
 import { ClauseChips, ClauseList, ClauseViewer } from './CodeRefs';
-import { DrawingCrop, fmtDate, InspPill, PhotoGrid, SheetViewer, StagedPhotos, TaskPill, toast, toastError, today } from './ui';
-
-function Drawer({ title, sub, pill, onClose, children }: { title: string; sub: string; pill: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', k);
-    document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', k); document.body.style.overflow = ''; };
-  }, [onClose]);
-  return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-label={title}>
-        <div className="drawer-head">
-          <div className="grow stack" style={{ gap: 4 }}>
-            <span className="label">{sub}</span>
-            <h2>{title}</h2>
-            <div>{pill}</div>
-          </div>
-          <button className="btn btn-sm" onClick={onClose}>Close</button>
-        </div>
-        <div className="drawer-body">{children}</div>
-      </aside>
-    </>
-  );
-}
+import { productsForTask, itemTitle } from '@/lib/rooms';
+import { DocLink, ItemPill, MAKER_NOTE, productLine } from './RoomsTab';
+import { DrawingCrop, Drawer, fmtDate, InspPill, PhotoGrid, SheetViewer, StagedPhotos, TaskPill, toast, toastError, today } from './ui';
 
 function CodeList({ codes }: { codes: string[] }) {
   if (!codes.length) return <p className="small muted">No code reference for this item. Follow the drawings and manufacturer instructions.</p>;
@@ -81,6 +58,7 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
   const notes = data.notes.filter((n) => n.task_key === taskKey);
   const defs = data.defs.filter((d) => d.task_key === taskKey);
   const contacts = data.contacts.filter((c) => c.trade === t.trade);
+  const products = productsForTask(t, data.rooms, data.roomItems);
   const checks = st?.checks || {};
   const left = t.checks.length - engine.checksDone(t);
   const who = (id: string | null) => (id && data.profiles[id]?.full_name) || 'a team member';
@@ -224,6 +202,30 @@ export function TaskPanel({ store, nav, taskKey, onClose }: { store: ProjectStor
           );
         })}
       </section>
+
+      {products.length > 0 && (
+        <section>
+          <div className="section-head" style={{ margin: 0 }}><h3>Selections</h3><span className="small muted">From the Rooms tab</span></div>
+          {products.map(({ room, items }) => (
+            <div key={room.id} className="stack" style={{ gap: 6 }}>
+              <button className="btn-link" style={{ alignSelf: 'flex-start' }} onClick={() => { onClose(); nav.go('rooms', room.id); }}>{room.name}{room.level ? ` · ${room.level}` : ''}</button>
+              <div className="list">
+                {items.map((i) => (
+                  <div key={i.id} className="item" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                    <ItemPill s={i.status} />
+                    <div className="grow stack" style={{ gap: 2 }}>
+                      <span className="t">{itemTitle(i)}</span>
+                      <span className="s">{productLine(i) || 'Product not chosen yet'}{i.location ? ` · ${i.location}` : ''}</span>
+                      {i.documents.map((d) => <DocLink key={d.path} doc={d} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {products.some((g) => g.items.some((i) => i.documents.length)) && <p className="small muted" style={{ margin: 0 }}>{MAKER_NOTE}</p>}
+        </section>
+      )}
 
       <section>
         <div className="section-head" style={{ margin: 0 }}><h3>Photos</h3><span className="small muted">Optional</span></div>
